@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
 import Link from "next/link";
 import { Product, Business, BusinessProduct } from "@/types";
@@ -15,7 +15,7 @@ interface SearchResult {
 const CATEGORIES = ["Të gjitha", "Ushqimore & Supermarket", "Elektronikë & Teknologji", "Ndërtim & Materiale", "Mobilje & Dekor", "Veshje & Këpucë", "Farmaci & Shëndet", "Auto & Pjesë Këmbimi", "Hidraulikë & Instalime", "Elektrik & Ndriçim"];
 const CITIES = ["Të gjitha", "Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë"];
 
-export default function SearchPage() {
+function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
@@ -395,5 +395,18 @@ export default function SearchPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 28, height: 28, border: "2px solid rgba(245,200,66,0.2)", borderTopColor: "#f5c842", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    }>
+      <SearchContent />
+    </Suspense>
   );
 }
