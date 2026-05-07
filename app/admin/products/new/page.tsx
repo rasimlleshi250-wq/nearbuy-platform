@@ -140,7 +140,7 @@ export default function NewProductPage() {
                     onChange={e => setForm(p => ({ ...p, category: e.target.value }))} required>
                     <option value="">Zgjidh kategorinë...</option>
                     {categories.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
+                      <option key={c.id} value={c.name}>{c.name}</option>
                     ))}
                   </select>
                   {categories.length === 0 && (
