@@ -32,6 +32,7 @@ export default function BusinessSetupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [locating, setLocating] = useState(false);
+  const [locTab, setLocTab] = useState<"gps" | "maps">("gps");
 
   const [form, setForm] = useState({
     name: "",
@@ -42,6 +43,7 @@ export default function BusinessSetupPage() {
     description: "",
     lat: 0,
     lng: 0,
+    mapsLink: "",
   });
 
   const [schedule, setSchedule] = useState<Record<string, DaySchedule>>(
@@ -213,12 +215,48 @@ export default function BusinessSetupPage() {
             </div>
 
             <div className="setup-field">
-              <label>Lokacioni GPS</label>
-              <button type="button" onClick={getLocation} disabled={locating} className="setup-gps-btn">
-                {locating ? <span className="nb-spin" /> : "📍"}
-                {locating ? "Duke marrë lokacionin..." : form.lat ? `✓ Lokacioni u mor (${form.lat.toFixed(4)}, ${form.lng.toFixed(4)})` : "Merr lokacionin tim tani"}
-              </button>
-              <span className="setup-hint">Kjo do të shfaqë dyqanin tënd në hartë</span>
+              <label>Lokacioni <span className="setup-optional">(opsional)</span></label>
+              <div className="loc-tabs">
+                <button type="button" onClick={() => setLocTab("gps")} className={`loc-tab ${locTab === "gps" ? "active" : ""}`}>📍 GPS automatik</button>
+                <button type="button" onClick={() => setLocTab("maps")} className={`loc-tab ${locTab === "maps" ? "active" : ""}`}>🔗 Link Google Maps</button>
+              </div>
+
+              {locTab === "gps" && (
+                <button type="button" onClick={getLocation} disabled={locating} className="setup-gps-btn">
+                  {locating ? <span className="nb-spin" /> : "📍"}
+                  {locating ? "Duke marrë lokacionin..." : form.lat ? `✓ ${form.lat.toFixed(5)}, ${form.lng.toFixed(5)}` : "Merr lokacionin tim tani"}
+                </button>
+              )}
+
+              {locTab === "maps" && (
+                <div>
+                  <input
+                    type="text"
+                    placeholder="https://maps.app.goo.gl/... ose https://www.google.com/maps?q=..."
+                    value={form.mapsLink || ""}
+                    onChange={e => {
+                      const link = e.target.value;
+                      setForm(p => ({ ...p, mapsLink: link }));
+                      // Ekstrakto lat/lng nga link
+                      const coordMatch = link.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                      if (coordMatch) {
+                        setForm(p => ({ ...p, mapsLink: link, lat: parseFloat(coordMatch[1]), lng: parseFloat(coordMatch[2]) }));
+                      }
+                      // Format: ?q=lat,lng
+                      const qMatch = link.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                      if (qMatch) {
+                        setForm(p => ({ ...p, mapsLink: link, lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) }));
+                      }
+                    }}
+                  />
+                  {form.lat && form.lng && form.mapsLink ? (
+                    <p className="loc-success">✓ Koordinatat u gjetën: {form.lat.toFixed(5)}, {form.lng.toFixed(5)}</p>
+                  ) : form.mapsLink ? (
+                    <p className="loc-warning">⚠️ Nuk u gjetën koordinatat. Provo link-un e plotë nga Google Maps → Share → Copy Link</p>
+                  ) : null}
+                </div>
+              )}
+              <span className="setup-hint">Shfaqet dyqani yt në hartë — klientët të gjejnë lehtë</span>
             </div>
           </div>
         )}
@@ -363,6 +401,13 @@ export default function BusinessSetupPage() {
         .setup-gps-btn { display: flex; align-items: center; gap: 8px; padding: 0.72rem 1rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 11px; color: #a1a1aa; font-size: 0.875rem; cursor: pointer; font-family: inherit; transition: all 0.2s; width: 100%; }
         .setup-gps-btn:hover:not(:disabled) { border-color: rgba(249,115,22,0.3); color: #f97316; }
         .setup-gps-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .setup-optional { color: #52525b; font-weight: 400; text-transform: none; font-size: 0.75rem; }
+        .loc-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+        .loc-tab { flex: 1; padding: 0.55rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: transparent; color: #71717a; font-size: 0.8rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all .15s; }
+        .loc-tab:hover { background: rgba(255,255,255,0.05); color: #e4e4e7; }
+        .loc-tab.active { background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.3); color: #f97316; }
+        .loc-success { font-size: 0.78rem; color: #22c55e; margin-top: 5px; }
+        .loc-warning { font-size: 0.78rem; color: #fbbf24; margin-top: 5px; line-height: 1.4; }
 
         /* Schedule */
         .setup-schedule { display: flex; flex-direction: column; gap: 8px; }
