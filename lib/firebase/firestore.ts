@@ -70,7 +70,7 @@ export async function getProductById(id: string): Promise<Product | null> {
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as Product) : null;
 }
 
-export async function createProduct(data: Omit<Product, "id" | "createdAt">, adminUID: string) {
+export async function createProduct(data: Omit<Product, "id" | "createdAt" | "createdBy">, adminUID: string) {
   return await addDoc(collection(db, "products"), {
     ...data,
     createdBy: adminUID,
