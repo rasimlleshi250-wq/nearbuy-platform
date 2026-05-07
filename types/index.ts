@@ -56,6 +56,7 @@ export interface Business {
   coverImage?: string;
   subscription: SubscriptionPlan;
   subscriptionEnd?: Timestamp;
+  schedule?: string;
   verified: boolean;
   featured: boolean;      // promovuar në homepage
   createdAt: Timestamp;
