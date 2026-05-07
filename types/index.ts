@@ -40,7 +40,7 @@ export interface Product {
 }
 
 // ── Businesses ─────────────────────────────────────
-export type SubscriptionPlan = "free" | "basic" | "pro" | "premium";
+export type SubscriptionPlan = "free" | "basic" | "advanced" | "pro" | "premium";
 
 export interface Business {
   id: string;
