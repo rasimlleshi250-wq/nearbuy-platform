@@ -5,6 +5,24 @@ import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 
 import { auth } from "@/lib/firebase/config";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase/config";
+
+async function getRedirectPath(uid: string): Promise<string> {
+  const snap = await getDoc(doc(db, "users", uid));
+  if (!snap.exists()) return "/dashboard";
+  const role = snap.data().role;
+  if (role === "admin") return "/admin";
+  if (role === "business") {
+    // Kontrollo nëse ka setup të kryer
+    const { getDocs, collection, query, where } = await import("firebase/firestore");
+    const q = query(collection(db, "businesses"), where("ownerUID", "==", uid));
+    const biz = await getDocs(q);
+    return biz.empty ? "/dashboard/business/setup" : "/dashboard/business";
+  }
+  if (role === "professional") return "/dashboard/professional";
+  return "/dashboard";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,16 +38,15 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      router.push("/dashboard");
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const path = await getRedirectPath(cred.user.uid);
+      router.push(path);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
       if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") {
         setError("Email ose fjalëkalimi është i gabuar.");
       } else if (code === "auth/too-many-requests") {
         setError("Shumë tentativa. Provo përsëri pas pak minutash.");
-      } else if (code === "auth/user-disabled") {
-        setError("Llogaria është çaktivizuar. Kontakto support.");
       } else {
         setError("Diçka shkoi gabim. Provo përsëri.");
       }
@@ -43,8 +60,20 @@ export default function LoginPage() {
     setGoogleLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      router.push("/dashboard");
+      const cred = await signInWithPopup(auth, provider);
+      // Krijo profilin nëse nuk ekziston
+      const snap = await getDoc(doc(db, "users", cred.user.uid));
+      if (!snap.exists()) {
+        await setDoc(doc(db, "users", cred.user.uid), {
+          uid: cred.user.uid,
+          email: cred.user.email || "",
+          displayName: cred.user.displayName || "",
+          role: "user",
+          createdAt: serverTimestamp(),
+        });
+      }
+      const path = await getRedirectPath(cred.user.uid);
+      router.push(path);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
       if (code !== "auth/popup-closed-by-user") {
@@ -141,17 +170,13 @@ export default function LoginPage() {
         </form>
 
         <p className="nb-footer-cta">
-          Nuk ke llogari? <Link href="/auth/register">Regjistrohu falas →</Link>
+          Ke biznes apo je profesionist? <Link href="/auth/register">Regjistrohu →</Link>
         </p>
       </div>
 
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        .nb-root {
-          min-height: 100vh; display: flex; align-items: center; justify-content: center;
-          padding: 2rem 1rem; background: #0a0a0a;
-          font-family: 'Plus Jakarta Sans', system-ui, sans-serif; position: relative; overflow: hidden;
-        }
+        .nb-root { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; background: #0a0a0a; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; position: relative; overflow: hidden; }
         .nb-blob { position: fixed; border-radius: 50%; filter: blur(100px); pointer-events: none; z-index: 0; }
         .nb-blob-a { width: 500px; height: 500px; background: radial-gradient(circle, rgba(249,115,22,0.18), transparent 70%); top: -150px; right: -100px; }
         .nb-blob-b { width: 380px; height: 380px; background: radial-gradient(circle, rgba(249,115,22,0.08), transparent 70%); bottom: -100px; left: -80px; }
@@ -178,15 +203,14 @@ export default function LoginPage() {
         .nb-link-accent:hover { text-decoration: underline; }
         .nb-input-wrap { position: relative; display: flex; align-items: center; }
         .nb-icon { position: absolute; left: 12px; color: #52525b; pointer-events: none; }
-        .nb-input-wrap input { width: 100%; padding: 0.72rem 0.9rem 0.72rem 2.4rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 11px; color: #f4f4f5; font-size: 0.875rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s, background 0.2s; font-family: inherit; }
+        .nb-input-wrap input { width: 100%; padding: 0.72rem 0.9rem 0.72rem 2.4rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 11px; color: #f4f4f5; font-size: 0.875rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s; font-family: inherit; }
         .nb-input-wrap input::placeholder { color: #3f3f46; }
         .nb-input-wrap input:focus { border-color: rgba(249,115,22,0.5); background: rgba(249,115,22,0.04); box-shadow: 0 0 0 3px rgba(249,115,22,0.1); }
         .nb-eye { position: absolute; right: 12px; background: none; border: none; cursor: pointer; color: #52525b; display: flex; align-items: center; padding: 0; transition: color 0.2s; }
         .nb-eye:hover { color: #a1a1aa; }
         .nb-error { display: flex; align-items: center; gap: 8px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.2); color: #f87171; font-size: 0.82rem; border-radius: 10px; padding: 0.6rem 0.8rem; }
         .nb-btn-primary { width: 100%; padding: 0.78rem 1rem; background: #f97316; color: white; font-size: 0.9rem; font-weight: 600; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.2s, transform 0.15s, box-shadow 0.2s; margin-top: 0.25rem; font-family: inherit; box-shadow: 0 4px 20px rgba(249,115,22,0.3); }
-        .nb-btn-primary:hover:not(:disabled) { background: #ea6c0a; transform: translateY(-1px); box-shadow: 0 6px 24px rgba(249,115,22,0.4); }
-        .nb-btn-primary:active:not(:disabled) { transform: translateY(0); }
+        .nb-btn-primary:hover:not(:disabled) { background: #ea6c0a; transform: translateY(-1px); }
         .nb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
         .nb-spin { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.25); border-top-color: currentColor; border-radius: 50%; animation: spin 0.65s linear infinite; }
         .nb-spin-w { border-color: rgba(255,255,255,0.25); border-top-color: white; }
