@@ -83,7 +83,6 @@ export default function NewProductPage() {
         tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
         images: imageUrls,
         status: "active" as const,
-        createdBy: user.uid,
       }, user.uid);
       setSuccess(true);
       setTimeout(() => router.push("/admin/products"), 1500);
