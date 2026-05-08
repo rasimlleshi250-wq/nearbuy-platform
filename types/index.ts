@@ -92,6 +92,7 @@ export interface Professional {
   photo?: string;
   pricePerHour?: number;
   experience?: string;
+  schedule?: string;
   availability?: string;  // "Mon-Fri 8:00-18:00"
   subscription: "free" | "monthly";
   subscriptionEnd?: Timestamp;
