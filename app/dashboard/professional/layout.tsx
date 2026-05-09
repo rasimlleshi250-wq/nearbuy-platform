@@ -7,7 +7,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { Professional } from "@/types";
 
 const NAV = [
@@ -35,9 +35,8 @@ export default function ProfessionalLayout({ children }: { children: React.React
   useEffect(() => {
     if (!user) return;
     const fetch = async () => {
-      const q = query(collection(db, "professionals"), where("ownerUID", "==", user.uid));
-      const snap = await getDocs(q);
-      if (!snap.empty) setProfessional({ id: snap.docs[0].id, ...snap.docs[0].data() } as Professional);
+      const snap = await getDoc(doc(db, "professionals", user.uid));
+      if (snap.exists()) setProfessional({ id: snap.id, ...snap.data() } as Professional);
     };
     fetch();
   }, [user]);
@@ -52,7 +51,7 @@ export default function ProfessionalLayout({ children }: { children: React.React
   if (!user) return null;
 
   const isActive = (href: string, exact?: boolean) => exact ? pathname === href : pathname.startsWith(href);
-  const initials = profile?.displayName?.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "P";
+  const initials = profile?.displayName?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase() || "P";
 
   return (
     <div className="pro-root">

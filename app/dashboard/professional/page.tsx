@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { Professional } from "@/types";
 import Link from "next/link";
 
@@ -16,9 +16,8 @@ export default function ProfessionalDashboardPage() {
     if (!user) return;
     const fetch = async () => {
       try {
-        const q = query(collection(db, "professionals"), where("ownerUID", "==", user.uid));
-        const snap = await getDocs(q);
-        if (!snap.empty) setProfessional({ id: snap.docs[0].id, ...snap.docs[0].data() } as Professional);
+        const snap = await getDoc(doc(db, "professionals", user.uid));
+        if (snap.exists()) setProfessional({ id: snap.id, ...snap.data() } as Professional);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
@@ -54,13 +53,12 @@ export default function ProfessionalDashboardPage() {
 
       {professional && (
         <>
-          {/* Profile Card */}
           <div className="pro-profile-card">
             <div className="pro-profile-left">
               <div className="pro-avatar">
                 {professional.photo
                   ? <img src={professional.photo} alt={professional.name} />
-                  : <span className="pro-avatar-initials">{professional.name?.split(" ").map(n => n[0]).join("").slice(0,2).toUpperCase()}</span>
+                  : <span className="pro-avatar-initials">{professional.name?.split(" ").map((n: string) => n[0]).join("").slice(0,2).toUpperCase()}</span>
                 }
               </div>
               <div className="pro-profile-details">
@@ -80,34 +78,17 @@ export default function ProfessionalDashboardPage() {
             </div>
           </div>
 
-          {/* Services */}
           {professional.services && professional.services.length > 0 && (
             <div className="pro-card">
               <h3 className="pro-card-title">Shërbimet e mia</h3>
               <div className="pro-services">
-                {professional.services.map((s, i) => (
+                {professional.services.map((s: string, i: number) => (
                   <span key={i} className="pro-service-tag">{s}</span>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Schedule */}
-          {professional.schedule && (
-            <div className="pro-card">
-              <h3 className="pro-card-title">Orari i disponueshmërisë</h3>
-              <div className="pro-schedule">
-                {professional.schedule.split(", ").map((s, i) => (
-                  <div key={i} className="pro-schedule-row">
-                    <span className="pro-schedule-day">{s.split(":")[0]}</span>
-                    <span className="pro-schedule-time">{s.split(": ")[1]}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Stats locked */}
           <div className="pro-card">
             <h3 className="pro-card-title">Statistikat</h3>
             <div className="pro-stats-locked">
@@ -151,11 +132,6 @@ export default function ProfessionalDashboardPage() {
         .pro-card-title { font-size: 0.9rem; font-weight: 700; color: #e4e4e7; margin-bottom: 1rem; }
         .pro-services { display: flex; flex-wrap: wrap; gap: 8px; }
         .pro-service-tag { background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); border-radius: 999px; padding: 4px 12px; font-size: 0.8rem; color: #c084fc; }
-        .pro-schedule { display: flex; flex-direction: column; gap: 6px; }
-        .pro-schedule-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem; }
-        .pro-schedule-row:last-child { border-bottom: none; }
-        .pro-schedule-day { color: #a1a1aa; }
-        .pro-schedule-time { color: #e4e4e7; font-weight: 500; }
         .pro-stats-locked { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .pro-stat-locked { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 1.25rem; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; opacity: 0.5; text-align: center; }
         .pro-stat-locked span:first-child { font-size: 1.5rem; }
