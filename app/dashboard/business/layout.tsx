@@ -38,7 +38,7 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     if (!user) return;
     const fetch = async () => {
-      const q = query(collection(db, "businesses"), where("ownerUID", "==", user.uid));
+      const q = query(collection(db, "businesses"), where("uid", "==", user.uid));
       const snap = await getDocs(q);
       if (!snap.empty) setBusiness({ id: snap.docs[0].id, ...snap.docs[0].data() } as Business);
     };
