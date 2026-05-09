@@ -21,8 +21,14 @@ export default function AdminProfessionalsPage() {
   }, []);
 
   const toggleVerified = async (id: string, current: boolean) => {
-    await updateDoc(doc(db, "professionals", id), { verified: !current });
-    setProfessionals(prev => prev.map(p => p.id === id ? { ...p, verified: !current } : p));
+    const newVerified = !current;
+    await updateDoc(doc(db, "professionals", id), {
+      verified: newVerified,
+      status: newVerified ? "approved" : "pending",
+    });
+    setProfessionals(prev => prev.map(p =>
+      p.id === id ? { ...p, verified: newVerified, status: newVerified ? "approved" : "pending" } : p
+    ));
   };
 
   const toggleFeatured = async (id: string, current: boolean) => {
@@ -91,18 +97,18 @@ export default function AdminProfessionalsPage() {
                         : <div className="adm-prof-photo adm-prof-placeholder">👤</div>
                       }
                       <div>
-                        <p className="adm-prof-name">{p.name}</p>
+                        <p className="adm-prof-name">{p.name || p.displayName}</p>
                         <p className="adm-text-muted" style={{ fontSize: "0.72rem" }}>{p.services?.slice(0, 2).join(", ")}</p>
                       </div>
                     </div>
                   </td>
-                  <td><span className="adm-badge">{p.profession}</span></td>
-                  <td><span className="adm-text-muted">{p.city}</span></td>
-                  <td><span className="adm-text-muted">{p.phone}</span></td>
+                  <td><span className="adm-badge">{p.profession || "—"}</span></td>
+                  <td><span className="adm-text-muted">{p.city || "—"}</span></td>
+                  <td><span className="adm-text-muted">{p.phone || "—"}</span></td>
                   <td>
                     <button onClick={() => toggleVerified(p.id, p.verified)}
                       className={`adm-toggle-btn ${p.verified ? "on" : "off"}`}>
-                      {p.verified ? "✓ Po" : "✗ Jo"}
+                      {p.verified ? "✓ Aprovuar" : "✗ Në pritje"}
                     </button>
                   </td>
                   <td>
@@ -142,7 +148,7 @@ export default function AdminProfessionalsPage() {
         .adm-prof-name{font-size:0.875rem;font-weight:600;color:#e4e4e7}
         .adm-badge{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:2px 8px;font-size:0.75rem;color:#a1a1aa}
         .adm-text-muted{font-size:0.85rem;color:#71717a}
-        .adm-toggle-btn{border:none;border-radius:6px;padding:4px 10px;font-size:0.75rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}
+        .adm-toggle-btn{border:none;border-radius:6px;padding:4px 12px;font-size:0.75rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}
         .adm-toggle-btn.on{background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25)}
         .adm-toggle-btn.off{background:rgba(239,68,68,0.08);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
       `}</style>
