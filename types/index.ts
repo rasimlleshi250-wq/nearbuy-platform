@@ -28,12 +28,12 @@ export interface Product {
   id: string;
   name: string;
   description: string;
-  category: string;       // ref → categories.id
+  category: string;
   brand?: string;
-  images: string[];       // URLs nga Firebase Storage
+  images: string[];
   barcode?: string;
   tags?: string[];
-  createdBy: string;      // adminUID
+  createdBy: string;
   status: ProductStatus;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
@@ -44,21 +44,21 @@ export type SubscriptionPlan = "free" | "basic" | "advanced" | "pro" | "premium"
 
 export interface Business {
   id: string;
-  ownerUID: string;       // ref → users.uid
+  ownerUID: string;
   name: string;
   description?: string;
   address: string;
   city: string;
-  location: GeoPoint;     // lat/lng për Maps
+  location: GeoPoint;
   phone: string;
   email?: string;
-  logo?: string;          // URL e logos
+  logo?: string;
   coverImage?: string;
   subscription: SubscriptionPlan;
   subscriptionEnd?: Timestamp;
   schedule?: string;
   verified: boolean;
-  featured: boolean;      // promovuar në homepage
+  featured: boolean;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -66,12 +66,12 @@ export interface Business {
 // ── Business Products (çmimet e bizneseve) ─────────
 export interface BusinessProduct {
   id: string;
-  businessId: string;     // ref → businesses.id
-  productId: string;      // ref → products.id
-  price: number;          // çmimi në Lekë
+  businessId: string;
+  productId: string;
+  price: number;
   inStock: boolean;
-  featured: boolean;      // promovuar (paid)
-  notes?: string;         // shënime opsionale
+  featured: boolean;
+  notes?: string;
   updatedAt: Timestamp;
   createdAt: Timestamp;
 }
@@ -79,12 +79,14 @@ export interface BusinessProduct {
 // ── Professionals ──────────────────────────────────
 export interface Professional {
   id: string;
-  ownerUID: string;       // ref → users.uid
+  ownerUID?: string;
+  uid?: string;
+  displayName?: string;
   name: string;
-  profession: string;     // elektriçist, hidraulik...
+  profession: string;
   description?: string;
-  services: string[];     // lista e shërbimeve
-  location: GeoPoint;
+  services: string[];
+  location?: GeoPoint;
   city: string;
   address?: string;
   phone: string;
@@ -93,9 +95,10 @@ export interface Professional {
   pricePerHour?: number;
   experience?: string;
   schedule?: string;
-  availability?: string;  // "Mon-Fri 8:00-18:00"
-  subscription: "free" | "monthly";
+  availability?: string;
+  subscription?: "free" | "monthly";
   subscriptionEnd?: Timestamp;
+  status?: "pending" | "approved" | "rejected";
   verified: boolean;
   featured: boolean;
   rating?: number;
