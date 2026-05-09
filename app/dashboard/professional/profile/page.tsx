@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db, storage } from "@/lib/firebase/config";
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { Professional } from "@/types";
 
@@ -30,10 +30,9 @@ export default function ProfessionalProfilePage() {
   useEffect(() => {
     if (!user) return;
     const fetch = async () => {
-      const q = query(collection(db, "professionals"), where("ownerUID", "==", user.uid));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as Professional;
+      const snap = await getDoc(doc(db, "professionals", user.uid));
+      if (snap.exists()) {
+        const data = { id: snap.id, ...snap.data() } as Professional;
         setProfessional(data);
         setForm({
           name: data.name || "",
@@ -61,16 +60,16 @@ export default function ProfessionalProfilePage() {
   };
 
   const handleSave = async () => {
-    if (!professional) return;
+    if (!user) return;
     setSaving(true); setError(""); setSuccess(false);
     try {
-      let photoUrl = professional.photo || "";
+      let photoUrl = professional?.photo || "";
       if (photoFile) {
-        const r = ref(storage, `professionals/${user!.uid}/photo_${Date.now()}`);
+        const r = ref(storage, `professionals/${user.uid}/photo_${Date.now()}`);
         await uploadBytes(r, photoFile);
         photoUrl = await getDownloadURL(r);
       }
-      await updateDoc(doc(db, "professionals", professional.id), {
+      await updateDoc(doc(db, "professionals", user.uid), {
         name: form.name.trim(),
         profession: form.profession.trim(),
         description: form.description.trim(),
@@ -86,7 +85,7 @@ export default function ProfessionalProfilePage() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (e) {
-      setError("Gabim gjatë ruajtjes.");
+      setError("Gabim gjatë ruajtjes. Provo përsëri.");
     } finally {
       setSaving(false);
     }
