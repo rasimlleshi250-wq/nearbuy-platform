@@ -43,6 +43,26 @@ export default function RegisterPage() {
       role: selectedRole,
       createdAt: serverTimestamp(),
     }, { merge: true });
+
+    if (selectedRole === "professional") {
+      await setDoc(doc(db, "professionals", uid), {
+        uid,
+        email,
+        displayName,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      }, { merge: true });
+    }
+
+    if (selectedRole === "business") {
+      await setDoc(doc(db, "businesses", uid), {
+        uid,
+        email,
+        displayName,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      }, { merge: true });
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -107,7 +127,6 @@ export default function RegisterPage() {
           <p>Zgjidh llojin e llogarisë për të vazhduar</p>
         </div>
 
-        {/* Role Selection */}
         <div className="nb-role-grid">
           <button
             type="button"
@@ -238,8 +257,6 @@ export default function RegisterPage() {
         .nb-header { margin-bottom: 1.5rem; }
         .nb-header h1 { font-size: 1.55rem; font-weight: 700; color: #fff; letter-spacing: -0.03em; margin-bottom: 0.3rem; }
         .nb-header p { color: #71717a; font-size: 0.875rem; }
-
-        /* Role Cards */
         .nb-role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1.5rem; }
         .nb-role-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 1.25rem 1rem; background: rgba(255,255,255,0.04); border: 1.5px solid rgba(255,255,255,0.08); border-radius: 14px; cursor: pointer; transition: all 0.2s; text-align: center; font-family: inherit; }
         .nb-role-card:hover { border-color: rgba(249,115,22,0.3); background: rgba(249,115,22,0.06); }
@@ -248,7 +265,6 @@ export default function RegisterPage() {
         .nb-role-title { font-size: 0.9rem; font-weight: 700; color: #e4e4e7; }
         .nb-role-desc { font-size: 0.72rem; color: #71717a; line-height: 1.4; }
         .nb-role-check { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; background: #f97316; border-radius: 50%; font-size: 0.65rem; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; }
-
         .nb-google-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 0.72rem 1rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: #e4e4e7; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: background 0.2s, border-color 0.2s; font-family: inherit; }
         .nb-google-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.18); }
         .nb-google-btn:disabled { opacity: 0.5; cursor: not-allowed; }
