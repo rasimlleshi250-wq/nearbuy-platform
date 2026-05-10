@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { db, storage } from "@/lib/firebase/config";
-import { doc, setDoc, serverTimestamp, GeoPoint } from "firebase/firestore";
+import { doc, setDoc, getDoc, serverTimestamp, GeoPoint } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Link from "next/link";
 
 const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
 
-const CATEGORIES = ["Ushqimore & Supermarket", "Elektronikë & Teknologji", "Ndërtim & Materiale", "Mobilje & Dekor", "Veshje & Këpucë", "Farmaci & Shëndet", "Auto & Pjesë Këmbimi", "Bujqësi & Blegtori", "Hidraulikë & Instalime", "Elektrik & Ndriçim", "Bukuri & Kozmetikë", "Lodra & Fëmijë", "Sport & Fitness", "Libra & Shkollë", "Tjetër"];
+const CATEGORIES = ["Elektronikë & Teknologji", "Ndërtim & Materiale", "Mobilje & Dekor", "Auto & Pjesë Këmbimi", "Hidraulikë & Instalime", "Elektrik & Ndriçim", "Tjetër"];
 
 const SCHEDULE_DAYS = ["E Hënë", "E Martë", "E Mërkurë", "E Enjte", "E Premte", "E Shtunë", "E Diel"];
 
@@ -30,6 +30,28 @@ export default function BusinessSetupPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  // Nëse biznesi ekziston tashmë, ridrejto te dashboard
+  useEffect(() => {
+    if (!user) return;
+    const check = async () => {
+      const snap = await getDoc(doc(db, "businesses", user.uid));
+      if (snap.exists()) {
+        router.replace("/dashboard/business");
+      } else {
+        setChecking(false);
+      }
+    };
+    check();
+  }, [user, router]);
+
+  if (checking) return (
+    <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div className="nb-spin" />
+      <style>{`.nb-spin{width:24px;height:24px;border:2px solid rgba(249,115,22,0.2);border-top-color:#f97316;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
   const [error, setError] = useState("");
   const [locating, setLocating] = useState(false);
   const [locTab, setLocTab] = useState<"gps" | "maps">("gps");
