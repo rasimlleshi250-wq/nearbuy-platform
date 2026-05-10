@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase/config";
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import Link from "next/link";
 
 interface Business {
@@ -14,12 +14,41 @@ interface Business {
   category: string;
   subscription: string;
   verified: boolean;
-  status: string;
   logo?: string;
   phone?: string;
   address?: string;
   description?: string;
+  requestedPlan?: string;
+  planStatus?: string;
 }
+
+const PLANS = [
+  {
+    id: "basic",
+    name: "Basic",
+    price: "1,000",
+    color: "#3b82f6",
+    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë"],
+    notIncluded: ["Statistika real-time", "Prioritet në kërkim", "Badge Featured"],
+  },
+  {
+    id: "advanced",
+    name: "Advanced",
+    price: "2,000",
+    color: "#a855f7",
+    popular: true,
+    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika real-time"],
+    notIncluded: ["Prioritet në kërkim", "Badge Featured"],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: "3,000",
+    color: "#f97316",
+    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika real-time", "Prioritet në kërkim", "Badge Featured"],
+    notIncluded: [],
+  },
+];
 
 export default function BusinessOverviewPage() {
   const { user } = useAuth();
@@ -27,28 +56,29 @@ export default function BusinessOverviewPage() {
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
   const [productCount, setProductCount] = useState(0);
+  const [docId, setDocId] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
+  const [requestedSuccess, setRequestedSuccess] = useState("");
 
   useEffect(() => {
     if (!user) return;
     const load = async () => {
       try {
-        // Kontrollo me uid (setDoc) ose ownerUID (addDoc)
-        const docSnap = await getDoc(doc(db, "businesses", user.uid));
-        if (docSnap.exists()) {
-          setBusiness({ id: docSnap.id, ...docSnap.data() } as Business);
+        const bizSnap = await getDoc(doc(db, "businesses", user.uid));
+        if (bizSnap.exists()) {
+          setBusiness({ id: bizSnap.id, ...bizSnap.data() } as Business);
+          setDocId(user.uid);
         } else {
-          // Kërko me ownerUID si fallback
           const q = query(collection(db, "businesses"), where("ownerUID", "==", user.uid));
           const snap = await getDocs(q);
           if (!snap.empty) {
             setBusiness({ id: snap.docs[0].id, ...snap.docs[0].data() } as Business);
+            setDocId(snap.docs[0].id);
           } else {
             router.replace("/dashboard/business/setup");
             return;
           }
         }
-
-        // Numëro produktet
         const pq = query(collection(db, "business_products"), where("businessId", "==", user.uid));
         const psnap = await getDocs(pq);
         setProductCount(psnap.size);
@@ -61,6 +91,25 @@ export default function BusinessOverviewPage() {
     load();
   }, [user, router]);
 
+  const handleRequestPlan = async (planId: string) => {
+    if (!docId || !business) return;
+    if (business.requestedPlan === planId && business.planStatus === "pending") return;
+    setRequesting(true);
+    try {
+      await updateDoc(doc(db, "businesses", docId), {
+        requestedPlan: planId,
+        planStatus: "pending",
+      });
+      setBusiness(p => p ? { ...p, requestedPlan: planId, planStatus: "pending" } : p);
+      setRequestedSuccess(planId);
+      setTimeout(() => setRequestedSuccess(""), 4000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRequesting(false);
+    }
+  };
+
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
       <div className="nb-spin" />
@@ -71,12 +120,12 @@ export default function BusinessOverviewPage() {
   if (!business) return null;
 
   const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
-  const plan = business.subscription || "basic";
+  const plan = business.subscription || "free";
   const pc = planColor[plan] || "#71717a";
 
   return (
     <div className="ov-root">
-      {/* Hero card */}
+      {/* Hero */}
       <div className="ov-hero">
         <div className="ov-hero-left">
           <div className="ov-logo">
@@ -99,6 +148,19 @@ export default function BusinessOverviewPage() {
           <div>
             <p className="ov-banner-title">Llogaria në pritje aprovimi</p>
             <p className="ov-banner-sub">Ekipi ynë do të shqyrtojë biznesin tënd brenda 24 orëve.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Plan pending banner */}
+      {business.planStatus === "pending" && business.requestedPlan && (
+        <div className="ov-banner ov-banner-blue">
+          <span>📋</span>
+          <div>
+            <p className="ov-banner-title" style={{ color: "#93c5fd" }}>Kërkesë plani në pritje</p>
+            <p className="ov-banner-sub" style={{ color: "#1e3a5f" }}>
+              Ke kërkuar planin <strong style={{ color: "#93c5fd" }}>{business.requestedPlan.charAt(0).toUpperCase() + business.requestedPlan.slice(1)}</strong>. Ekipi ynë do ta aprovojë së shpejti.
+            </p>
           </div>
         </div>
       )}
@@ -147,31 +209,57 @@ export default function BusinessOverviewPage() {
         </Link>
       </div>
 
-      {/* Info */}
-      <div className="ov-section-title">Informacioni i dyqanit</div>
-      <div className="ov-info-grid">
-        {business.phone && (
-          <div className="ov-info-row">
-            <span className="ov-info-label">📞 Telefoni</span>
-            <span className="ov-info-val">{business.phone}</span>
-          </div>
-        )}
-        {business.address && (
-          <div className="ov-info-row">
-            <span className="ov-info-label">📍 Adresa</span>
-            <span className="ov-info-val">{business.address}</span>
-          </div>
-        )}
-        {business.description && (
-          <div className="ov-info-row">
-            <span className="ov-info-label">📝 Përshkrimi</span>
-            <span className="ov-info-val">{business.description}</span>
-          </div>
-        )}
+      {/* Plans */}
+      <div className="ov-section-title">Planet e abonimit</div>
+      <div className="ov-plans">
+        {PLANS.map(p => {
+          const isCurrentPlan = business.subscription === p.id;
+          const isPending = business.requestedPlan === p.id && business.planStatus === "pending";
+          return (
+            <div key={p.id} className={`ov-plan ${isCurrentPlan ? "ov-plan-active" : ""} ${p.popular ? "ov-plan-popular" : ""}`}
+              style={{ borderColor: isCurrentPlan ? `${p.color}60` : isPending ? `${p.color}40` : undefined }}>
+              {p.popular && <div className="ov-plan-tag" style={{ background: p.color }}>Më i popullarit</div>}
+              {isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Plani juaj</div>}
+              {isPending && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: "#52525b" }}>Në pritje</div>}
+
+              <div className="ov-plan-header">
+                <p className="ov-plan-name" style={{ color: p.color }}>{p.name}</p>
+                <div className="ov-plan-price">
+                  <span className="ov-plan-amount">{p.price}</span>
+                  <span className="ov-plan-currency">L/muaj</span>
+                </div>
+              </div>
+
+              <div className="ov-plan-features">
+                {p.features.map(f => (
+                  <div key={f} className="ov-plan-feat">
+                    <span className="ov-feat-check" style={{ color: p.color }}>✓</span>
+                    <span>{f}</span>
+                  </div>
+                ))}
+                {p.notIncluded.map(f => (
+                  <div key={f} className="ov-plan-feat ov-feat-no">
+                    <span className="ov-feat-check">✗</span>
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => handleRequestPlan(p.id)}
+                disabled={requesting || isCurrentPlan || isPending}
+                className="ov-plan-btn"
+                style={isCurrentPlan || isPending ? {} : { background: p.color, boxShadow: `0 4px 20px ${p.color}40` }}
+              >
+                {isCurrentPlan ? "Plani aktual" : isPending ? "⏳ Në pritje aprovimi" : requestedSuccess === p.id ? "✓ Kërkesa u dërgua!" : "Zgjidh këtë plan"}
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       <style>{`
-        .ov-root { display: flex; flex-direction: column; gap: 1.25rem; max-width: 700px; }
+        .ov-root { display: flex; flex-direction: column; gap: 1.25rem; max-width: 780px; }
         .ov-hero { display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1.25rem; }
         .ov-hero-left { display: flex; align-items: center; gap: 14px; }
         .ov-logo { width: 52px; height: 52px; border-radius: 12px; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.2); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0; overflow: hidden; }
@@ -180,6 +268,7 @@ export default function BusinessOverviewPage() {
         .ov-biz-meta { font-size: 0.8rem; color: #71717a; margin-top: 2px; }
         .ov-plan-badge { font-size: 0.72rem; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid; }
         .ov-banner { display: flex; align-items: flex-start; gap: 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; padding: 1rem; }
+        .ov-banner-blue { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.2); }
         .ov-banner span { font-size: 1.2rem; margin-top: 1px; }
         .ov-banner-title { font-size: 0.875rem; font-weight: 600; color: #fbbf24; }
         .ov-banner-sub { font-size: 0.78rem; color: #92400e; margin-top: 2px; }
@@ -195,11 +284,24 @@ export default function BusinessOverviewPage() {
         .ov-action-icon { font-size: 1.3rem; }
         .ov-action-title { font-size: 0.875rem; font-weight: 600; color: #e4e4e7; }
         .ov-action-sub { font-size: 0.75rem; color: #71717a; margin-top: 1px; }
-        .ov-info-grid { display: flex; flex-direction: column; gap: 8px; }
-        .ov-info-row { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 0.75rem 1rem; }
-        .ov-info-label { font-size: 0.8rem; color: #71717a; }
-        .ov-info-val { font-size: 0.875rem; color: #e4e4e7; font-weight: 500; text-align: right; max-width: 60%; }
-        @media (max-width: 480px) { .ov-stats { grid-template-columns: 1fr 1fr; } .ov-actions { grid-template-columns: 1fr; } }
+        .ov-plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .ov-plan { position: relative; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; transition: border-color 0.2s; }
+        .ov-plan-active { background: rgba(255,255,255,0.05); }
+        .ov-plan-tag { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-size: 0.68rem; font-weight: 700; color: white; padding: 2px 10px; border-radius: 20px; white-space: nowrap; }
+        .ov-plan-header { margin-top: 6px; }
+        .ov-plan-name { font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .ov-plan-price { display: flex; align-items: baseline; gap: 4px; }
+        .ov-plan-amount { font-size: 1.6rem; font-weight: 800; color: #f4f4f5; letter-spacing: -0.03em; }
+        .ov-plan-currency { font-size: 0.78rem; color: #71717a; }
+        .ov-plan-features { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+        .ov-plan-feat { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: #a1a1aa; }
+        .ov-feat-check { font-size: 0.75rem; width: 14px; flex-shrink: 0; }
+        .ov-feat-no { opacity: 0.35; }
+        .ov-feat-no .ov-feat-check { color: #71717a; }
+        .ov-plan-btn { width: 100%; padding: 0.6rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: white; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.2s, transform 0.15s; }
+        .ov-plan-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+        .ov-plan-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        @media (max-width: 640px) { .ov-plans { grid-template-columns: 1fr; } .ov-stats { grid-template-columns: 1fr 1fr; } .ov-actions { grid-template-columns: 1fr; } }
       `}</style>
     </div>
   );
