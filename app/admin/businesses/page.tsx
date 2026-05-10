@@ -47,7 +47,7 @@ export default function AdminBusinessesPage() {
       requestedPlan: null,
     });
     setBusinesses(prev => prev.map(b =>
-      b.id === id ? { ...b, subscription: requestedPlan, planStatus: "active", requestedPlan: undefined } : b
+      b.id === id ? { ...b, subscription: requestedPlan as any, planStatus: "active" as any, requestedPlan: undefined } : b
     ));
     setActionLoading(null);
   };

@@ -59,6 +59,8 @@ export interface Business {
   schedule?: string;
   verified: boolean;
   featured: boolean;
+  requestedPlan?: SubscriptionPlan;
+  planStatus?: "pending" | "active" | "rejected";
   createdAt: Timestamp;
   updatedAt?: Timestamp;
 }
