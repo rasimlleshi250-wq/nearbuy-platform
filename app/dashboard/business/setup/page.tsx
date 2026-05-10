@@ -9,7 +9,7 @@ import Link from "next/link";
 
 const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
 
-const CATEGORIES = ["Elektronikë & Teknologji", "Ndërtim & Materiale", "Mobilje & Dekor", "Auto & Pjesë Këmbimi", "Hidraulikë & Instalime", "Elektrik & Ndriçim", "Tjetër"];
+const CATEGORIES = ["Hidraulikë", "Elektrik", "Ndërtim", "Bojëra"];
 
 const SCHEDULE_DAYS = ["E Hënë", "E Martë", "E Mërkurë", "E Enjte", "E Premte", "E Shtunë", "E Diel"];
 

@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase/config";
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 
 const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
-const CATEGORIES = ["Ushqimore & Supermarket", "Elektronikë & Teknologji", "Ndërtim & Materiale", "Mobilje & Dekor", "Veshje & Këpucë", "Farmaci & Shëndet", "Auto & Pjesë Këmbimi", "Bujqësi & Blegtori", "Hidraulikë & Instalime", "Elektrik & Ndriçim", "Bukuri & Kozmetikë", "Lodra & Fëmijë", "Sport & Fitness", "Libra & Shkollë", "Tjetër"];
+const CATEGORIES = ["Hidraulikë", "Elektrik", "Ndërtim", "Bojëra"];
 
 export default function BusinessProfilePage() {
   const { user } = useAuth();
