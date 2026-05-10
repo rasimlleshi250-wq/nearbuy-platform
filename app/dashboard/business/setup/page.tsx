@@ -120,7 +120,7 @@ export default function BusinessSetupPage() {
         createdAt: serverTimestamp(),
       });
 
-      router.push("/dashboard/business/plan");
+      router.push("/dashboard/business");
     } catch (err) {
       console.error(err);
       setError("Gabim gjatë ruajtjes. Provo përsëri.");
