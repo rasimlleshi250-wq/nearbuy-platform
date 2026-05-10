@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { db, storage } from "@/lib/firebase/config";
+import { db } from "@/lib/firebase/config";
 import { doc, setDoc, getDoc, serverTimestamp, GeoPoint } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Link from "next/link";
 
 const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
@@ -53,10 +52,6 @@ export default function BusinessSetupPage() {
     </div>
   );
   const [error, setError] = useState("");
-  const [locating, setLocating] = useState(false);
-  const [locTab, setLocTab] = useState<"gps" | "maps">("gps");
-
-  const [form, setForm] = useState({
     name: "",
     category: "",
     city: "",
@@ -72,22 +67,6 @@ export default function BusinessSetupPage() {
     Object.fromEntries(SCHEDULE_DAYS.map(d => [d, { open: d !== "E Diel", from: "08:00", to: "18:00" }]))
   );
 
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState("");
-  const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState("");
-
-  const handleImageChange = (type: "logo" | "cover", e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      if (type === "logo") { setLogoFile(file); setLogoPreview(ev.target?.result as string); }
-      else { setCoverFile(file); setCoverPreview(ev.target?.result as string); }
-    };
-    reader.readAsDataURL(file);
-  };
-
   const getLocation = () => {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
@@ -102,12 +81,6 @@ export default function BusinessSetupPage() {
     );
   };
 
-  const uploadFile = async (file: File, path: string): Promise<string> => {
-    const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, file);
-    return await getDownloadURL(storageRef);
-  };
-
   const handleSubmit = async () => {
     if (!user) return;
     if (!form.name || !form.category || !form.city || !form.address || !form.phone) {
@@ -117,10 +90,6 @@ export default function BusinessSetupPage() {
     setLoading(true);
     setError("");
     try {
-      let logoUrl = "";
-      let coverUrl = "";
-      if (logoFile) logoUrl = await uploadFile(logoFile, `businesses/${user.uid}/logo_${Date.now()}`);
-      if (coverFile) coverUrl = await uploadFile(coverFile, `businesses/${user.uid}/cover_${Date.now()}`);
 
       const scheduleStr = Object.entries(schedule)
         .filter(([, v]) => v.open)
@@ -138,8 +107,8 @@ export default function BusinessSetupPage() {
         description: form.description.trim(),
         schedule: scheduleStr,
         location: form.lat && form.lng ? new GeoPoint(form.lat, form.lng) : null,
-        logo: logoUrl,
-        coverImage: coverUrl,
+        logo: "",
+        coverImage: "",
         subscription: "free",
         status: "pending",
         verified: false,
@@ -289,38 +258,22 @@ export default function BusinessSetupPage() {
           </div>
         )}
 
-        {/* Step 3 — Foto */}
+        {/* Step 3 — Konfirmim */}
         {step === 3 && (
           <div>
             <div className="setup-titles">
-              <h1>Foto e dyqanit</h1>
-              <p>Shto logon dhe foton e kopertinës</p>
+              <h1>Gati për regjistrim!</h1>
+              <p>Shqyrto të dhënat dhe regjistro dyqanin tënd</p>
             </div>
-            <div className="setup-photos">
-              <div className="setup-field">
-                <label>Logo <span className="setup-optional">(opsional)</span></label>
-                <label className="photo-upload-area">
-                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleImageChange("logo", e)} />
-                  {logoPreview
-                    ? <img src={logoPreview} alt="logo" className="photo-preview logo-preview" />
-                    : <div className="photo-placeholder"><span>🏪</span><span>Ngarko logon</span><span className="photo-hint">PNG, JPG deri 2MB</span></div>
-                  }
-                </label>
-              </div>
-              <div className="setup-field">
-                <label>Foto kopertinë <span className="setup-optional">(opsional)</span></label>
-                <label className="photo-upload-area cover-area">
-                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => handleImageChange("cover", e)} />
-                  {coverPreview
-                    ? <img src={coverPreview} alt="cover" className="photo-preview cover-preview" />
-                    : <div className="photo-placeholder"><span>🖼</span><span>Ngarko foton e kopertinës</span><span className="photo-hint">Rekomandohet 1200×400px</span></div>
-                  }
-                </label>
-              </div>
+            <div className="setup-confirm-box">
+              <div className="setup-confirm-row"><span>🏪 Dyqani</span><strong>{form.name}</strong></div>
+              <div className="setup-confirm-row"><span>📂 Kategoria</span><strong>{form.category}</strong></div>
+              <div className="setup-confirm-row"><span>📍 Qyteti</span><strong>{form.city}</strong></div>
+              <div className="setup-confirm-row"><span>📞 Telefoni</span><strong>{form.phone}</strong></div>
+              <div className="setup-confirm-row"><span>🏠 Adresa</span><strong>{form.address}</strong></div>
             </div>
-
             <div className="setup-info-box">
-              <p>🎉 Gati! Pas regjistrimit, dyqani yt do të shfaqet në NearBuy.al pasi të aprovohet nga ekipi ynë brenda 24 orëve.</p>
+              <p>🎉 Pas regjistrimit, dyqani yt do të shfaqet në NearBuy.al pasi të aprovohet nga ekipi ynë brenda 24 orëve.</p>
             </div>
           </div>
         )}
@@ -431,6 +384,11 @@ export default function BusinessSetupPage() {
         .nb-spin { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.25); border-top-color: currentColor; border-radius: 50%; animation: spin 0.65s linear infinite; }
         .nb-spin-w { border-color: rgba(255,255,255,0.25); border-top-color: white; }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        .setup-confirm-box { display: flex; flex-direction: column; gap: 10px; margin-bottom: 1.25rem; }
+        .setup-confirm-row { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; font-size: 0.875rem; }
+        .setup-confirm-row span { color: #71717a; }
+        .setup-confirm-row strong { color: #e4e4e7; font-weight: 600; }
         @media (max-width: 480px) { .setup-card { padding: 1.75rem 1.25rem; } .setup-row { grid-template-columns: 1fr; } }
       `}</style>
     </main>
