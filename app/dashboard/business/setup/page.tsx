@@ -52,6 +52,10 @@ export default function BusinessSetupPage() {
     </div>
   );
   const [error, setError] = useState("");
+  const [locating, setLocating] = useState(false);
+  const [locTab, setLocTab] = useState<"gps" | "maps">("gps");
+
+  const [form, setForm] = useState({
     name: "",
     category: "",
     city: "",
