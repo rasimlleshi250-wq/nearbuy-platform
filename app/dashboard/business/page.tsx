@@ -34,7 +34,7 @@ const PLANS = [
   {
     id: "advanced",
     name: "Advanced",
-    price: "2,000",
+    price: "1,500",
     color: "#a855f7",
     popular: true,
     features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika real-time"],
@@ -43,7 +43,7 @@ const PLANS = [
   {
     id: "pro",
     name: "Pro",
-    price: "3,000",
+    price: "2,500",
     color: "#f97316",
     features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika real-time", "Prioritet në kërkim", "Badge Featured"],
     notIncluded: [],
@@ -120,6 +120,7 @@ export default function BusinessOverviewPage() {
   if (!business) return null;
 
   const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
+  const isSubscribed = business.subscription && business.subscription !== "free" && business.planStatus === "active";
   const plan = business.subscription || "free";
   const pc = planColor[plan] || "#71717a";
 
@@ -147,7 +148,7 @@ export default function BusinessOverviewPage() {
           <span>⏳</span>
           <div>
             <p className="ov-banner-title">Llogaria në pritje aprovimi</p>
-            <p className="ov-banner-sub">Ekipi ynë do të shqyrtojë biznesin tënd brenda 24 orëve.</p>
+            <p className="ov-banner-sub-text">Ekipi ynë do të shqyrtojë biznesin tënd brenda 24 orëve.</p>
           </div>
         </div>
       )}
@@ -158,7 +159,7 @@ export default function BusinessOverviewPage() {
           <span>📋</span>
           <div>
             <p className="ov-banner-title" style={{ color: "#93c5fd" }}>Kërkesë plani në pritje</p>
-            <p className="ov-banner-sub" style={{ color: "#1e3a5f" }}>
+            <p className="ov-banner-sub-text" style={{ color: "#1e3a5f" }}>
               Ke kërkuar planin <strong style={{ color: "#93c5fd" }}>{business.requestedPlan.charAt(0).toUpperCase() + business.requestedPlan.slice(1)}</strong>. Ekipi ynë do ta aprovojë së shpejti.
             </p>
           </div>
@@ -190,16 +191,37 @@ export default function BusinessOverviewPage() {
         </div>
       </div>
 
+      {/* No subscription banner */}
+      {!isSubscribed && !business.requestedPlan && (
+        <div className="ov-banner ov-banner-sub">
+          <span>🔒</span>
+          <div>
+            <p className="ov-banner-title" style={{ color: "#f5c842" }}>Nuk ke abonim aktiv</p>
+            <p className="ov-banner-sub2">Zgjidh një plan më poshtë për të shtuar produkte dhe për t'u shfaqur në platformë.</p>
+          </div>
+        </div>
+      )}
+
       {/* Quick actions */}
       <div className="ov-section-title">Veprime të shpejta</div>
       <div className="ov-actions">
-        <Link href="/dashboard/business/products" className="ov-action">
-          <span className="ov-action-icon">➕</span>
-          <div>
-            <p className="ov-action-title">Shto produkt</p>
-            <p className="ov-action-sub">Regjistro produkte të reja</p>
+        {isSubscribed ? (
+          <Link href="/dashboard/business/products" className="ov-action">
+            <span className="ov-action-icon">➕</span>
+            <div>
+              <p className="ov-action-title">Shto produkt</p>
+              <p className="ov-action-sub">Regjistro produkte të reja</p>
+            </div>
+          </Link>
+        ) : (
+          <div className="ov-action ov-action-locked">
+            <span className="ov-action-icon">🔒</span>
+            <div>
+              <p className="ov-action-title">Shto produkt</p>
+              <p className="ov-action-sub">Kërkon abonim aktiv</p>
+            </div>
           </div>
-        </Link>
+        )}
         <Link href="/dashboard/business/profile" className="ov-action">
           <span className="ov-action-icon">✏️</span>
           <div>
@@ -271,7 +293,7 @@ export default function BusinessOverviewPage() {
         .ov-banner-blue { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.2); }
         .ov-banner span { font-size: 1.2rem; margin-top: 1px; }
         .ov-banner-title { font-size: 0.875rem; font-weight: 600; color: #fbbf24; }
-        .ov-banner-sub { font-size: 0.78rem; color: #92400e; margin-top: 2px; }
+        .ov-banner-sub-text { font-size: 0.78rem; color: #92400e; margin-top: 2px; }
         .ov-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
         .ov-stat { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 1rem; }
         .ov-stat-icon { font-size: 1.3rem; }
@@ -301,6 +323,9 @@ export default function BusinessOverviewPage() {
         .ov-plan-btn { width: 100%; padding: 0.6rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: white; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.2s, transform 0.15s; }
         .ov-plan-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
         .ov-plan-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .ov-banner-sub { background: rgba(245,200,66,0.06); border-color: rgba(245,200,66,0.2); }
+        .ov-banner-sub2 { font-size: 0.78rem; color: #78716c; margin-top: 2px; }
+        .ov-action-locked { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1rem; opacity: 0.45; cursor: not-allowed; }
         @media (max-width: 640px) { .ov-plans { grid-template-columns: 1fr; } .ov-stats { grid-template-columns: 1fr 1fr; } .ov-actions { grid-template-columns: 1fr; } }
       `}</style>
     </div>
