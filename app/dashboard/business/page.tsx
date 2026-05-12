@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase/config";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { getTotalStats, getLast30DaysStats, getTopProducts, getMonthComparison } from "@/lib/firebase/analytics";
 import Link from "next/link";
 
 interface Business {
@@ -22,33 +23,41 @@ interface Business {
   planStatus?: string;
 }
 
+interface DayData { date: string; count: number; }
+interface TopProduct { productId: string; name: string; count: number; }
+
 const PLANS = [
   {
-    id: "basic",
-    name: "Basic",
-    price: "1,000",
-    color: "#3b82f6",
-    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë"],
-    notIncluded: ["Statistika real-time", "Prioritet në kërkim", "Badge Featured"],
+    id: "basic", name: "Basic", price: "1,000", color: "#3b82f6",
+    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika bazë (totale)"],
+    notIncluded: ["Statistika me graf", "Klikime Maps", "Analiza e produkteve", "Badge Featured"],
   },
   {
-    id: "advanced",
-    name: "Advanced",
-    price: "1,500",
-    color: "#a855f7",
-    popular: true,
-    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika real-time"],
-    notIncluded: ["Prioritet në kërkim", "Badge Featured"],
+    id: "advanced", name: "Advanced", price: "1,500", color: "#a855f7", popular: true,
+    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika me graf 30 ditë", "Klikime Maps"],
+    notIncluded: ["Analiza e produkteve", "Badge Featured"],
   },
   {
-    id: "pro",
-    name: "Pro",
-    price: "2,500",
-    color: "#f97316",
-    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika real-time", "Prioritet në kërkim", "Badge Featured"],
+    id: "pro", name: "Pro", price: "2,500", color: "#f97316",
+    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika me graf 30 ditë", "Klikime Maps", "Top produkte", "Krahasim periudhash", "Badge Featured"],
     notIncluded: [],
   },
 ];
+
+function MiniChart({ data, color }: { data: DayData[]; color: string }) {
+  if (!data.length) return <div className="chart-empty">Pa të dhëna</div>;
+  const max = Math.max(...data.map(d => d.count), 1);
+  const last30 = [...data].sort((a, b) => a.date.localeCompare(b.date)).slice(-14);
+  return (
+    <div className="chart-bars">
+      {last30.map((d, i) => (
+        <div key={i} className="chart-bar-wrap" title={`${d.date}: ${d.count}`}>
+          <div className="chart-bar" style={{ height: `${(d.count / max) * 100}%`, background: color }} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function BusinessOverviewPage() {
   const { user } = useAuth();
@@ -60,10 +69,21 @@ export default function BusinessOverviewPage() {
   const [requesting, setRequesting] = useState(false);
   const [requestedSuccess, setRequestedSuccess] = useState("");
 
+  // Analytics state
+  const [totalViews, setTotalViews] = useState(0);
+  const [totalContacts, setTotalContacts] = useState(0);
+  const [totalMaps, setTotalMaps] = useState(0);
+  const [viewsData, setViewsData] = useState<DayData[]>([]);
+  const [contactsData, setContactsData] = useState<DayData[]>([]);
+  const [mapsData, setMapsData] = useState<DayData[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [comparison, setComparison] = useState<{ thisMonth: { views: number; contacts: number }; lastMonth: { views: number; contacts: number } } | null>(null);
+
   useEffect(() => {
     if (!user) return;
     const load = async () => {
       try {
+        let bid = user.uid;
         const bizSnap = await getDoc(doc(db, "businesses", user.uid));
         if (bizSnap.exists()) {
           setBusiness({ id: bizSnap.id, ...bizSnap.data() } as Business);
@@ -74,14 +94,43 @@ export default function BusinessOverviewPage() {
           if (!snap.empty) {
             setBusiness({ id: snap.docs[0].id, ...snap.docs[0].data() } as Business);
             setDocId(snap.docs[0].id);
+            bid = snap.docs[0].id;
           } else {
             router.replace("/dashboard/business/setup");
             return;
           }
         }
-        const pq = query(collection(db, "business_products"), where("businessId", "==", user.uid));
+
+        // Produkte
+        const pq = query(collection(db, "business_products"), where("businessId", "==", bid));
         const psnap = await getDocs(pq);
         setProductCount(psnap.size);
+
+        // Analytics bazë (gjithmonë)
+        const total = await getTotalStats("businesses", bid);
+        setTotalViews(total.totalViews);
+        setTotalContacts(total.totalContacts);
+
+        // Merr planin nga biznesi
+        const sub = bizSnap.exists() ? bizSnap.data().subscription : "";
+        const isAdvancedOrPro = sub === "advanced" || sub === "pro";
+        const isPro = sub === "pro";
+
+        if (isAdvancedOrPro) {
+          const stats30 = await getLast30DaysStats("businesses", bid);
+          setViewsData(stats30.views);
+          setContactsData(stats30.contacts);
+          setMapsData(stats30.maps);
+          setTotalMaps(stats30.totalMaps);
+        }
+
+        if (isPro) {
+          const top = await getTopProducts(bid);
+          setTopProducts(top);
+          const comp = await getMonthComparison("businesses", bid);
+          setComparison(comp);
+        }
+
       } catch (e) {
         console.error(e);
       } finally {
@@ -96,18 +145,12 @@ export default function BusinessOverviewPage() {
     if (business.requestedPlan === planId && business.planStatus === "pending") return;
     setRequesting(true);
     try {
-      await updateDoc(doc(db, "businesses", docId), {
-        requestedPlan: planId,
-        planStatus: "pending",
-      });
+      await updateDoc(doc(db, "businesses", docId), { requestedPlan: planId, planStatus: "pending" });
       setBusiness(p => p ? { ...p, requestedPlan: planId, planStatus: "pending" } : p);
       setRequestedSuccess(planId);
       setTimeout(() => setRequestedSuccess(""), 4000);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setRequesting(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setRequesting(false); }
   };
 
   if (loading) return (
@@ -121,11 +164,22 @@ export default function BusinessOverviewPage() {
 
   const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
   const isSubscribed = business.subscription && business.subscription !== "free" && business.planStatus === "active";
+  const isBasic = business.subscription === "basic" && business.planStatus === "active";
+  const isAdvanced = business.subscription === "advanced" && business.planStatus === "active";
+  const isPro = business.subscription === "pro" && business.planStatus === "active";
+  const isAdvancedOrPro = isAdvanced || isPro;
   const plan = business.subscription || "free";
   const pc = planColor[plan] || "#71717a";
 
+  const pctChange = (now: number, prev: number) => {
+    if (prev === 0) return now > 0 ? "+100%" : "—";
+    const pct = Math.round(((now - prev) / prev) * 100);
+    return pct >= 0 ? `+${pct}%` : `${pct}%`;
+  };
+
   return (
     <div className="ov-root">
+
       {/* Hero */}
       <div className="ov-hero">
         <div className="ov-hero-left">
@@ -142,31 +196,38 @@ export default function BusinessOverviewPage() {
         </span>
       </div>
 
-      {/* Status banner */}
+      {/* Banners */}
       {!business.verified && (
         <div className="ov-banner">
           <span>⏳</span>
           <div>
             <p className="ov-banner-title">Llogaria në pritje aprovimi</p>
-            <p className="ov-banner-sub-text">Ekipi ynë do të shqyrtojë biznesin tënd brenda 24 orëve.</p>
+            <p className="ov-banner-sub">Ekipi ynë do të shqyrtojë biznesin tënd brenda 24 orëve.</p>
           </div>
         </div>
       )}
-
-      {/* Plan pending banner */}
       {business.planStatus === "pending" && business.requestedPlan && (
         <div className="ov-banner ov-banner-blue">
           <span>📋</span>
           <div>
             <p className="ov-banner-title" style={{ color: "#93c5fd" }}>Kërkesë plani në pritje</p>
-            <p className="ov-banner-sub-text" style={{ color: "#1e3a5f" }}>
+            <p className="ov-banner-sub" style={{ color: "#1e3a5f" }}>
               Ke kërkuar planin <strong style={{ color: "#93c5fd" }}>{business.requestedPlan.charAt(0).toUpperCase() + business.requestedPlan.slice(1)}</strong>. Ekipi ynë do ta aprovojë së shpejti.
             </p>
           </div>
         </div>
       )}
+      {!isSubscribed && !business.requestedPlan && (
+        <div className="ov-banner ov-banner-yellow">
+          <span>🔒</span>
+          <div>
+            <p className="ov-banner-title" style={{ color: "#f5c842" }}>Nuk ke abonim aktiv</p>
+            <p className="ov-banner-sub" style={{ color: "#78716c" }}>Zgjidh një plan më poshtë për të shtuar produkte dhe për t'u shfaqur në platformë.</p>
+          </div>
+        </div>
+      )}
 
-      {/* Stats */}
+      {/* Stats row */}
       <div className="ov-stats">
         <div className="ov-stat">
           <span className="ov-stat-icon">🛍</span>
@@ -178,28 +239,89 @@ export default function BusinessOverviewPage() {
         <div className="ov-stat">
           <span className="ov-stat-icon">👁</span>
           <div>
-            <p className="ov-stat-val">—</p>
+            <p className="ov-stat-val">{isSubscribed ? totalViews.toLocaleString() : "—"}</p>
             <p className="ov-stat-label">Shikime</p>
           </div>
         </div>
         <div className="ov-stat">
           <span className="ov-stat-icon">📞</span>
           <div>
-            <p className="ov-stat-val">—</p>
+            <p className="ov-stat-val">{isSubscribed ? totalContacts.toLocaleString() : "—"}</p>
             <p className="ov-stat-label">Kontakte</p>
           </div>
         </div>
+        {isAdvancedOrPro && (
+          <div className="ov-stat">
+            <span className="ov-stat-icon">🗺</span>
+            <div>
+              <p className="ov-stat-val">{totalMaps.toLocaleString()}</p>
+              <p className="ov-stat-label">Klikime Maps</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* No subscription banner */}
-      {!isSubscribed && !business.requestedPlan && (
-        <div className="ov-banner ov-banner-sub">
-          <span>🔒</span>
-          <div>
-            <p className="ov-banner-title" style={{ color: "#f5c842" }}>Nuk ke abonim aktiv</p>
-            <p className="ov-banner-sub2">Zgjidh një plan më poshtë për të shtuar produkte dhe për t'u shfaqur në platformë.</p>
+      {/* Analytics — Advanced+ */}
+      {isAdvancedOrPro && (
+        <div className="ov-section-title">Statistikat — 14 ditët e fundit</div>
+      )}
+      {isAdvancedOrPro && (
+        <div className="ov-charts">
+          <div className="ov-chart-card">
+            <p className="ov-chart-title">👁 Shikime</p>
+            <p className="ov-chart-total">{totalViews.toLocaleString()}</p>
+            <MiniChart data={viewsData} color="#a855f7" />
+          </div>
+          <div className="ov-chart-card">
+            <p className="ov-chart-title">📞 Kontakte</p>
+            <p className="ov-chart-total">{totalContacts.toLocaleString()}</p>
+            <MiniChart data={contactsData} color="#22c55e" />
+          </div>
+          <div className="ov-chart-card">
+            <p className="ov-chart-title">🗺 Maps</p>
+            <p className="ov-chart-total">{totalMaps.toLocaleString()}</p>
+            <MiniChart data={mapsData} color="#f5c842" />
           </div>
         </div>
+      )}
+
+      {/* Pro — Krahasim periudhash */}
+      {isPro && comparison && (
+        <>
+          <div className="ov-section-title">Krahasim — Ky muaj vs muaji i kaluar</div>
+          <div className="ov-compare">
+            <div className="ov-compare-card">
+              <p className="ov-compare-label">👁 Shikime këtë muaj</p>
+              <p className="ov-compare-val">{comparison.thisMonth.views}</p>
+              <p className="ov-compare-change" style={{ color: comparison.thisMonth.views >= comparison.lastMonth.views ? "#22c55e" : "#f87171" }}>
+                {pctChange(comparison.thisMonth.views, comparison.lastMonth.views)} nga muaji i kaluar
+              </p>
+            </div>
+            <div className="ov-compare-card">
+              <p className="ov-compare-label">📞 Kontakte këtë muaj</p>
+              <p className="ov-compare-val">{comparison.thisMonth.contacts}</p>
+              <p className="ov-compare-change" style={{ color: comparison.thisMonth.contacts >= comparison.lastMonth.contacts ? "#22c55e" : "#f87171" }}>
+                {pctChange(comparison.thisMonth.contacts, comparison.lastMonth.contacts)} nga muaji i kaluar
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Pro — Top produktet */}
+      {isPro && topProducts.length > 0 && (
+        <>
+          <div className="ov-section-title">Top produktet më të klikuara</div>
+          <div className="ov-top-products">
+            {topProducts.map((p, i) => (
+              <div key={p.productId} className="ov-top-prod">
+                <span className="ov-top-rank">#{i + 1}</span>
+                <span className="ov-top-name">{p.name}</span>
+                <span className="ov-top-count">{p.count} klikime</span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Quick actions */}
@@ -235,15 +357,14 @@ export default function BusinessOverviewPage() {
       <div className="ov-section-title">Planet e abonimit</div>
       <div className="ov-plans">
         {PLANS.map(p => {
-          const isCurrentPlan = business.subscription === p.id;
+          const isCurrentPlan = business.subscription === p.id && business.planStatus === "active";
           const isPending = business.requestedPlan === p.id && business.planStatus === "pending";
           return (
-            <div key={p.id} className={`ov-plan ${isCurrentPlan ? "ov-plan-active" : ""} ${p.popular ? "ov-plan-popular" : ""}`}
+            <div key={p.id} className={`ov-plan ${isCurrentPlan ? "ov-plan-active" : ""}`}
               style={{ borderColor: isCurrentPlan ? `${p.color}60` : isPending ? `${p.color}40` : undefined }}>
-              {p.popular && <div className="ov-plan-tag" style={{ background: p.color }}>Më i popullarit</div>}
+              {(p as any).popular && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Më i popullarit</div>}
               {isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Plani juaj</div>}
               {isPending && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: "#52525b" }}>Në pritje</div>}
-
               <div className="ov-plan-header">
                 <p className="ov-plan-name" style={{ color: p.color }}>{p.name}</p>
                 <div className="ov-plan-price">
@@ -251,7 +372,6 @@ export default function BusinessOverviewPage() {
                   <span className="ov-plan-currency">L/muaj</span>
                 </div>
               </div>
-
               <div className="ov-plan-features">
                 {p.features.map(f => (
                   <div key={f} className="ov-plan-feat">
@@ -266,14 +386,11 @@ export default function BusinessOverviewPage() {
                   </div>
                 ))}
               </div>
-
-              <button
-                onClick={() => handleRequestPlan(p.id)}
+              <button onClick={() => handleRequestPlan(p.id)}
                 disabled={requesting || isCurrentPlan || isPending}
                 className="ov-plan-btn"
-                style={isCurrentPlan || isPending ? {} : { background: p.color, boxShadow: `0 4px 20px ${p.color}40` }}
-              >
-                {isCurrentPlan ? "Plani aktual" : isPending ? "⏳ Në pritje aprovimi" : requestedSuccess === p.id ? "✓ Kërkesa u dërgua!" : "Zgjidh këtë plan"}
+                style={isCurrentPlan || isPending ? {} : { background: p.color, boxShadow: `0 4px 20px ${p.color}40` }}>
+                {isCurrentPlan ? "Plani aktual" : isPending ? "⏳ Në pritje" : requestedSuccess === p.id ? "✓ Kërkesa u dërgua!" : "Zgjidh këtë plan"}
               </button>
             </div>
           );
@@ -281,52 +398,69 @@ export default function BusinessOverviewPage() {
       </div>
 
       <style>{`
-        .ov-root { display: flex; flex-direction: column; gap: 1.25rem; max-width: 780px; }
-        .ov-hero { display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1.25rem; }
-        .ov-hero-left { display: flex; align-items: center; gap: 14px; }
-        .ov-logo { width: 52px; height: 52px; border-radius: 12px; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.2); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0; overflow: hidden; }
-        .ov-logo img { width: 100%; height: 100%; object-fit: cover; }
-        .ov-biz-name { font-size: 1.15rem; font-weight: 700; color: #f4f4f5; letter-spacing: -0.02em; }
-        .ov-biz-meta { font-size: 0.8rem; color: #71717a; margin-top: 2px; }
-        .ov-plan-badge { font-size: 0.72rem; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid; }
-        .ov-banner { display: flex; align-items: flex-start; gap: 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; padding: 1rem; }
-        .ov-banner-blue { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.2); }
-        .ov-banner span { font-size: 1.2rem; margin-top: 1px; }
-        .ov-banner-title { font-size: 0.875rem; font-weight: 600; color: #fbbf24; }
-        .ov-banner-sub-text { font-size: 0.78rem; color: #92400e; margin-top: 2px; }
-        .ov-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-        .ov-stat { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 1rem; }
-        .ov-stat-icon { font-size: 1.3rem; }
-        .ov-stat-val { font-size: 1.3rem; font-weight: 700; color: #f4f4f5; line-height: 1; }
-        .ov-stat-label { font-size: 0.72rem; color: #71717a; margin-top: 3px; }
-        .ov-section-title { font-size: 0.75rem; font-weight: 600; color: #52525b; text-transform: uppercase; letter-spacing: 0.05em; }
-        .ov-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .ov-action { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 1rem; text-decoration: none; transition: border-color 0.2s, background 0.2s; }
-        .ov-action:hover { border-color: rgba(249,115,22,0.3); background: rgba(249,115,22,0.05); }
-        .ov-action-icon { font-size: 1.3rem; }
-        .ov-action-title { font-size: 0.875rem; font-weight: 600; color: #e4e4e7; }
-        .ov-action-sub { font-size: 0.75rem; color: #71717a; margin-top: 1px; }
-        .ov-plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .ov-plan { position: relative; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; transition: border-color 0.2s; }
-        .ov-plan-active { background: rgba(255,255,255,0.05); }
-        .ov-plan-tag { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-size: 0.68rem; font-weight: 700; color: white; padding: 2px 10px; border-radius: 20px; white-space: nowrap; }
-        .ov-plan-header { margin-top: 6px; }
-        .ov-plan-name { font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
-        .ov-plan-price { display: flex; align-items: baseline; gap: 4px; }
-        .ov-plan-amount { font-size: 1.6rem; font-weight: 800; color: #f4f4f5; letter-spacing: -0.03em; }
-        .ov-plan-currency { font-size: 0.78rem; color: #71717a; }
-        .ov-plan-features { display: flex; flex-direction: column; gap: 6px; flex: 1; }
-        .ov-plan-feat { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: #a1a1aa; }
-        .ov-feat-check { font-size: 0.75rem; width: 14px; flex-shrink: 0; }
-        .ov-feat-no { opacity: 0.35; }
-        .ov-feat-no .ov-feat-check { color: #71717a; }
-        .ov-plan-btn { width: 100%; padding: 0.6rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: white; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.2s, transform 0.15s; }
-        .ov-plan-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
-        .ov-plan-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-        .ov-banner-sub { background: rgba(245,200,66,0.06); border-color: rgba(245,200,66,0.2); }
-        .ov-banner-sub2 { font-size: 0.78rem; color: #78716c; margin-top: 2px; }
-        .ov-action-locked { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1rem; opacity: 0.45; cursor: not-allowed; }
-        @media (max-width: 640px) { .ov-plans { grid-template-columns: 1fr; } .ov-stats { grid-template-columns: 1fr 1fr; } .ov-actions { grid-template-columns: 1fr; } }
+        .ov-root{display:flex;flex-direction:column;gap:1.25rem;max-width:820px}
+        .ov-hero{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1.25rem}
+        .ov-hero-left{display:flex;align-items:center;gap:14px}
+        .ov-logo{width:52px;height:52px;border-radius:12px;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;overflow:hidden}
+        .ov-logo img{width:100%;height:100%;object-fit:cover}
+        .ov-biz-name{font-size:1.15rem;font-weight:700;color:#f4f4f5;letter-spacing:-0.02em}
+        .ov-biz-meta{font-size:0.8rem;color:#71717a;margin-top:2px}
+        .ov-plan-badge{font-size:0.72rem;font-weight:600;padding:3px 10px;border-radius:6px;border:1px solid}
+        .ov-banner{display:flex;align-items:flex-start;gap:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:1rem}
+        .ov-banner-blue{background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.2)}
+        .ov-banner-yellow{background:rgba(245,200,66,0.06);border-color:rgba(245,200,66,0.2)}
+        .ov-banner span:first-child{font-size:1.2rem;margin-top:1px}
+        .ov-banner-title{font-size:0.875rem;font-weight:600;color:#fbbf24}
+        .ov-banner-sub{font-size:0.78rem;color:#92400e;margin-top:2px}
+        .ov-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+        .ov-stat{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:1rem}
+        .ov-stat-icon{font-size:1.3rem}
+        .ov-stat-val{font-size:1.3rem;font-weight:700;color:#f4f4f5;line-height:1}
+        .ov-stat-label{font-size:0.72rem;color:#71717a;margin-top:3px}
+        .ov-section-title{font-size:0.75rem;font-weight:600;color:#52525b;text-transform:uppercase;letter-spacing:0.05em}
+        .ov-charts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .ov-chart-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:1rem}
+        .ov-chart-title{font-size:0.78rem;font-weight:600;color:#a1a1aa;margin-bottom:4px}
+        .ov-chart-total{font-size:1.4rem;font-weight:800;color:#f4f4f5;letter-spacing:-0.02em;margin-bottom:10px}
+        .chart-bars{display:flex;align-items:flex-end;gap:3px;height:60px}
+        .chart-bar-wrap{flex:1;height:100%;display:flex;align-items:flex-end}
+        .chart-bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;transition:height .3s}
+        .chart-empty{font-size:0.75rem;color:#52525b;text-align:center;padding:1rem 0}
+        .ov-compare{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+        .ov-compare-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:1rem}
+        .ov-compare-label{font-size:0.78rem;color:#71717a;margin-bottom:6px}
+        .ov-compare-val{font-size:1.6rem;font-weight:800;color:#f4f4f5;letter-spacing:-0.03em;margin-bottom:4px}
+        .ov-compare-change{font-size:0.75rem;font-weight:600}
+        .ov-top-products{display:flex;flex-direction:column;gap:8px}
+        .ov-top-prod{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:0.75rem 1rem}
+        .ov-top-rank{font-size:0.85rem;font-weight:800;color:#f97316;width:28px;flex-shrink:0}
+        .ov-top-name{font-size:0.875rem;font-weight:600;color:#e4e4e7;flex:1}
+        .ov-top-count{font-size:0.75rem;color:#71717a}
+        .ov-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+        .ov-action{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:1rem;text-decoration:none;transition:border-color .2s,background .2s}
+        .ov-action:hover{border-color:rgba(249,115,22,0.3);background:rgba(249,115,22,0.05)}
+        .ov-action-locked{opacity:0.4;cursor:not-allowed}
+        .ov-action-icon{font-size:1.3rem}
+        .ov-action-title{font-size:0.875rem;font-weight:600;color:#e4e4e7}
+        .ov-action-sub{font-size:0.75rem;color:#71717a;margin-top:1px}
+        .ov-plans{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .ov-plan{position:relative;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;gap:1rem;transition:border-color .2s}
+        .ov-plan-active{background:rgba(255,255,255,0.05)}
+        .ov-plan-tag{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:0.68rem;font-weight:700;color:white;padding:2px 10px;border-radius:20px;white-space:nowrap}
+        .ov-plan-header{margin-top:6px}
+        .ov-plan-name{font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+        .ov-plan-price{display:flex;align-items:baseline;gap:4px}
+        .ov-plan-amount{font-size:1.6rem;font-weight:800;color:#f4f4f5;letter-spacing:-0.03em}
+        .ov-plan-currency{font-size:0.78rem;color:#71717a}
+        .ov-plan-features{display:flex;flex-direction:column;gap:6px;flex:1}
+        .ov-plan-feat{display:flex;align-items:center;gap:8px;font-size:0.78rem;color:#a1a1aa}
+        .ov-feat-check{font-size:0.75rem;width:14px;flex-shrink:0}
+        .ov-feat-no{opacity:0.35}
+        .ov-feat-no .ov-feat-check{color:#71717a}
+        .ov-plan-btn{width:100%;padding:0.6rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:white;font-size:0.8rem;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s,transform .15s}
+        .ov-plan-btn:hover:not(:disabled){opacity:0.85;transform:translateY(-1px)}
+        .ov-plan-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+        @media(max-width:700px){.ov-stats{grid-template-columns:1fr 1fr}.ov-charts,.ov-plans{grid-template-columns:1fr}.ov-compare,.ov-actions{grid-template-columns:1fr}}
       `}</style>
     </div>
   );
