@@ -46,9 +46,14 @@ export default function AdminProductsPage() {
             <h1>Produktet</h1>
             <p>{products.length} produkte gjithsej</p>
           </div>
-          <Link href="/admin/products/new" className="adm-btn-primary">
-            + Shto produkt
-          </Link>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <Link href="/admin/products/import" className="adm-btn-secondary">
+              ⬆ Import CSV
+            </Link>
+            <Link href="/admin/products/new" className="adm-btn-primary">
+              + Shto produkt
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -128,6 +133,8 @@ export default function AdminProductsPage() {
         .adm-page-header h1{font-size:1.4rem;font-weight:700;color:#fff;letter-spacing:-0.025em;margin-bottom:0.25rem}
         .adm-page-header p{font-size:0.85rem;color:#71717a}
         .adm-btn-primary{padding:0.6rem 1.2rem;background:#f97316;color:#fff;border:none;border-radius:10px;font-size:0.875rem;font-weight:600;cursor:pointer;text-decoration:none;transition:background .2s;white-space:nowrap;font-family:inherit}
+        .adm-btn-secondary{padding:0.6rem 1.2rem;background:transparent;border:1px solid rgba(255,255,255,0.1);color:#a1a1aa;border-radius:10px;font-size:0.875rem;font-weight:500;cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;font-family:inherit}
+        .adm-btn-secondary:hover{border-color:rgba(255,255,255,0.2);color:#e4e4e7}
         .adm-btn-primary:hover{background:#ea6c0a}
         .adm-search-bar{display:flex;align-items:center;gap:10px;background:#141414;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0 14px;margin-bottom:1.25rem}
         .adm-search-icon{color:#52525b;font-size:0.9rem}
