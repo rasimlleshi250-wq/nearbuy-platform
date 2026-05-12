@@ -211,7 +211,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Si funksionon */}}
+      {/* Si funksionon */}
       <section className="nb-section">
         <div className="nb-container">
           <div className="nb-section-header nb-section-center">
