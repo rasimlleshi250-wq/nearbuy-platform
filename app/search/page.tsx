@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, getDocs } from "firebase/firestore";
+import { trackView, trackContact } from "@/lib/firebase/analytics";
 
 interface Business {
   id: string;
@@ -37,7 +38,10 @@ function SearchContent() {
       try {
         const q = query(collection(db, "businesses"), where("verified", "==", true));
         const snap = await getDocs(q);
-        setBusinesses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Business)));
+        const bizs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Business));
+        setBusinesses(bizs);
+        // Gjurmo shikimet
+        bizs.forEach(b => trackView("businesses", b.id));
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
@@ -135,7 +139,7 @@ function SearchContent() {
                 {b.description && <p className="sr-desc">{b.description.slice(0, 90)}{b.description.length > 90 ? "..." : ""}</p>}
                 {b.address && <p className="sr-addr">🗺 {b.address}</p>}
                 {b.phone && (
-                  <a href={`tel:${b.phone}`} className="sr-call">📞 {b.phone}</a>
+                  <a href={`tel:${b.phone}`} className="sr-call" onClick={() => trackContact("businesses", b.id)}>📞 {b.phone}</a>
                 )}
               </div>
             ))}
