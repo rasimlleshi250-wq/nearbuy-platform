@@ -38,7 +38,7 @@ export default function BusinessProductsPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ price: "", inStock: true, hasOffer: false, offerPrice: "", offerEnd: "", featured: false });
-  const [addForm, setAddForm] = useState<Record<string, { price: string; inStock: boolean; offerPrice: string; offerEnd: string }>>({});
+  const [addForm, setAddForm] = useState<Record<string, { price: string; inStock: boolean; hasOffer: boolean; offerPrice: string; offerEnd: string }>>({});
   const [successMsg, setSuccessMsg] = useState("");
 
   useEffect(() => {
