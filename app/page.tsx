@@ -79,6 +79,18 @@ export default function HomePage() {
     };
     loadBusinesses();
     loadProfessionals();
+
+    const loadProducts = async () => {
+      try {
+        const snap = await getDocs(collection(db, "products"));
+        const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product))
+          .filter(p => !p.status || p.status === "active")
+          .slice(0, 8);
+        setProducts(all);
+      } catch (e) { console.error(e); }
+      finally { setLoadingProd(false); }
+    };
+    loadProducts();
   }, []);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -147,38 +159,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Bizneset */}
-      <section className="nb-section nb-section-dark">
-        <div className="nb-container">
-          <div className="nb-section-header">
-            <h2 className="nb-section-title">Biznese të Verifikuara</h2>
-            <Link href="/search" className="nb-see-all">Shiko të gjitha →</Link>
-          </div>
-          {loadingBiz ? (
-            <div className="nb-loading-row">
-              {[...Array(3)].map((_, i) => <div key={i} className="nb-skeleton" />)}
-            </div>
-          ) : businesses.length === 0 ? (
-            <div className="nb-empty-state"><p>🏪 Bizneset e para do të shfaqen së shpejti!</p></div>
-          ) : (
-            <div className="nb-biz-grid">
-              {businesses.map(b => (
-                <div key={b.id} className="nb-biz-card">
-                  {b.featured && <div className="nb-featured-badge">⭐ Featured</div>}
-                  <div className="nb-biz-logo">{b.logo ? <img src={b.logo} alt={b.name} /> : <span>🏪</span>}</div>
-                  <div>
-                    <p className="nb-biz-name">{b.name}</p>
-                    <p className="nb-biz-meta">{b.category}</p>
-                    <p className="nb-biz-city">📍 {b.city}</p>
-                  </div>
-                  <div className="nb-biz-footer"><span className="nb-verified">✓ Verifikuar</span></div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
       {/* Produktet e fundit */}
       <section className="nb-section nb-section-dark">
         <div className="nb-container">
@@ -205,6 +185,38 @@ export default function HomePage() {
                     {p.brand && <p className="nb-prod-brand">{p.brand}</p>}
                   </div>
                 </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Bizneset */}
+      <section className="nb-section nb-section-dark">
+        <div className="nb-container">
+          <div className="nb-section-header">
+            <h2 className="nb-section-title">Biznese të Verifikuara</h2>
+            <Link href="/search" className="nb-see-all">Shiko të gjitha →</Link>
+          </div>
+          {loadingBiz ? (
+            <div className="nb-loading-row">
+              {[...Array(3)].map((_, i) => <div key={i} className="nb-skeleton" />)}
+            </div>
+          ) : businesses.length === 0 ? (
+            <div className="nb-empty-state"><p>🏪 Bizneset e para do të shfaqen së shpejti!</p></div>
+          ) : (
+            <div className="nb-biz-grid">
+              {businesses.map(b => (
+                <div key={b.id} className="nb-biz-card">
+                  {b.featured && <div className="nb-featured-badge">⭐ Featured</div>}
+                  <div className="nb-biz-logo">{b.logo ? <img src={b.logo} alt={b.name} /> : <span>🏪</span>}</div>
+                  <div>
+                    <p className="nb-biz-name">{b.name}</p>
+                    <p className="nb-biz-meta">{b.category}</p>
+                    <p className="nb-biz-city">📍 {b.city}</p>
+                  </div>
+                  <div className="nb-biz-footer"><span className="nb-verified">✓ Verifikuar</span></div>
+                </div>
               ))}
             </div>
           )}
