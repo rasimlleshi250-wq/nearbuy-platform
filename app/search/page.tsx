@@ -126,21 +126,26 @@ function SearchContent() {
             {filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0)).map(b => (
               <div key={b.id} className={`sr-card ${b.featured ? "sr-card-featured" : ""}`}>
                 {b.featured && <div className="sr-feat">⭐ Featured</div>}
-                <div className="sr-card-top">
-                  <div className="sr-logo">
-                    {b.logo ? <img src={b.logo} alt={b.name} /> : <span>🏪</span>}
+                <Link href={`/business/${b.id}`} className="sr-card-link">
+                  <div className="sr-card-top">
+                    <div className="sr-logo">
+                      {b.logo ? <img src={b.logo} alt={b.name} /> : <span>🏪</span>}
+                    </div>
+                    <div className="sr-card-info">
+                      <p className="sr-name">{b.name}</p>
+                      <p className="sr-cat">{b.category}</p>
+                      <p className="sr-city">📍 {b.city}</p>
+                    </div>
                   </div>
-                  <div className="sr-card-info">
-                    <p className="sr-name">{b.name}</p>
-                    <p className="sr-cat">{b.category}</p>
-                    <p className="sr-city">📍 {b.city}</p>
-                  </div>
+                  {b.description && <p className="sr-desc">{b.description.slice(0, 90)}{b.description.length > 90 ? "..." : ""}</p>}
+                  {b.address && <p className="sr-addr">🗺 {b.address}</p>}
+                </Link>
+                <div className="sr-card-footer">
+                  {b.phone && (
+                    <a href={`tel:${b.phone}`} className="sr-call" onClick={() => trackContact("businesses", b.id)}>📞 {b.phone}</a>
+                  )}
+                  <Link href={`/business/${b.id}`} className="sr-view-btn">Shiko dyqanin →</Link>
                 </div>
-                {b.description && <p className="sr-desc">{b.description.slice(0, 90)}{b.description.length > 90 ? "..." : ""}</p>}
-                {b.address && <p className="sr-addr">🗺 {b.address}</p>}
-                {b.phone && (
-                  <a href={`tel:${b.phone}`} className="sr-call" onClick={() => trackContact("businesses", b.id)}>📞 {b.phone}</a>
-                )}
               </div>
             ))}
           </div>
@@ -192,8 +197,12 @@ function SearchContent() {
         .sr-city{font-size:0.75rem;color:#52525b;margin-top:2px}
         .sr-desc{font-size:0.78rem;color:#71717a;line-height:1.5}
         .sr-addr{font-size:0.75rem;color:#52525b}
-        .sr-call{display:block;text-align:center;padding:0.6rem;background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);border-radius:10px;color:#f5c842;font-size:0.85rem;font-weight:600;text-decoration:none;transition:background .2s;margin-top:auto}
+        .sr-card-link{display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit}
+        .sr-card-footer{display:flex;gap:8px;margin-top:auto}
+        .sr-call{flex:1;text-align:center;padding:0.6rem;background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);border-radius:10px;color:#f5c842;font-size:0.82rem;font-weight:600;text-decoration:none;transition:background .2s}
         .sr-call:hover{background:rgba(245,200,66,0.15)}
+        .sr-view-btn{flex:1;text-align:center;padding:0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#a1a1aa;font-size:0.82rem;font-weight:500;text-decoration:none;transition:all .2s}
+        .sr-view-btn:hover{border-color:rgba(249,115,22,0.3);color:#f97316}
         @media(max-width:600px){.sr-nav{padding:0 1rem}.sr-nav-link{display:none}.sr-search-bar{flex-direction:column}.sr-search-btn{padding:0.85rem}.sr-filters{flex-direction:column}}
       `}</style>
     </div>
