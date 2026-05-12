@@ -17,6 +17,15 @@ interface Business {
   subscription: string;
 }
 
+interface Product {
+  id: string;
+  name: string;
+  category: string;
+  images?: string[];
+  brand?: string;
+  status: string;
+}
+
 interface Professional {
   id: string;
   name: string;
@@ -48,6 +57,8 @@ export default function HomePage() {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [loadingBiz, setLoadingBiz] = useState(true);
   const [loadingPro, setLoadingPro] = useState(true);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loadingProd, setLoadingProd] = useState(true);
 
   useEffect(() => {
     const loadBusinesses = async () => {
@@ -127,7 +138,7 @@ export default function HomePage() {
           </div>
           <div className="nb-cat-grid">
             {CATEGORIES.map(cat => (
-              <button key={cat.name} onClick={() => router.push(`/search?q=${encodeURIComponent(cat.name)}`)} className="nb-cat-card">
+              <button key={cat.name} onClick={() => router.push(`/products?category=${encodeURIComponent(cat.name)}`)} className="nb-cat-card">
                 <span className="nb-cat-icon">{cat.icon}</span>
                 <span className="nb-cat-name">{cat.name}</span>
               </button>
@@ -168,7 +179,39 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Si funksionon */}
+      {/* Produktet e fundit */}
+      <section className="nb-section nb-section-dark">
+        <div className="nb-container">
+          <div className="nb-section-header">
+            <h2 className="nb-section-title">Produktet</h2>
+            <Link href="/products" className="nb-see-all">Shiko të gjitha →</Link>
+          </div>
+          {loadingProd ? (
+            <div className="nb-loading-row">
+              {[...Array(4)].map((_, i) => <div key={i} className="nb-skeleton" />)}
+            </div>
+          ) : products.length === 0 ? (
+            <div className="nb-empty-state"><p>📦 Produktet e para do të shfaqen së shpejti!</p></div>
+          ) : (
+            <div className="nb-prod-grid">
+              {products.map(p => (
+                <Link key={p.id} href={`/products?category=${encodeURIComponent(p.category)}`} className="nb-prod-card">
+                  <div className="nb-prod-img">
+                    {p.images?.[0] ? <img src={p.images[0]} alt={p.name} /> : <span>📦</span>}
+                  </div>
+                  <div className="nb-prod-info">
+                    <p className="nb-prod-name">{p.name}</p>
+                    <p className="nb-prod-cat">{p.category}</p>
+                    {p.brand && <p className="nb-prod-brand">{p.brand}</p>}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Si funksionon */}}
       <section className="nb-section">
         <div className="nb-container">
           <div className="nb-section-header nb-section-center">
@@ -337,6 +380,15 @@ export default function HomePage() {
         .nb-skeleton-pro{height:140px}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
         .nb-empty-state{text-align:center;padding:3rem;color:#52525b;font-size:0.9rem;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.07);border-radius:14px}
+        .nb-prod-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+        .nb-prod-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;overflow:hidden;text-decoration:none;transition:border-color .2s,transform .2s;display:block}
+        .nb-prod-card:hover{border-color:rgba(245,200,66,0.3);transform:translateY(-2px)}
+        .nb-prod-img{height:140px;background:rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:center;font-size:2.5rem;overflow:hidden}
+        .nb-prod-img img{width:100%;height:100%;object-fit:cover}
+        .nb-prod-info{padding:0.75rem}
+        .nb-prod-name{font-size:0.82rem;font-weight:600;color:#e4e4e7;margin-bottom:2px}
+        .nb-prod-cat{font-size:0.72rem;color:#f5c842;margin-bottom:2px}
+        .nb-prod-brand{font-size:0.7rem;color:#52525b}
         .nb-footer{padding:2rem 0;border-top:1px solid rgba(255,255,255,0.06)}
         .nb-footer-row{display:flex;align-items:center;justify-content:space-between}
         .nb-footer-logo{font-size:1rem;font-weight:800;color:#fff}
