@@ -37,7 +37,7 @@ export default function BusinessProductsPage() {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ price: "", inStock: true, offerPrice: "", offerEnd: "", featured: false });
+  const [editForm, setEditForm] = useState({ price: "", inStock: true, hasOffer: false, offerPrice: "", offerEnd: "", featured: false });
   const [addForm, setAddForm] = useState<Record<string, { price: string; inStock: boolean; offerPrice: string; offerEnd: string }>>({});
   const [successMsg, setSuccessMsg] = useState("");
 
@@ -92,7 +92,7 @@ export default function BusinessProductsPage() {
 
   const openEdit = (p: MyProduct) => {
     setEditId(p.id);
-    setEditForm({ price: String(p.price), inStock: p.inStock, offerPrice: p.offerPrice ? String(p.offerPrice) : "", offerEnd: p.offerEnd || "", featured: p.featured || false });
+    setEditForm({ price: String(p.price), inStock: p.inStock, hasOffer: !!p.offerPrice, offerPrice: p.offerPrice ? String(p.offerPrice) : "", offerEnd: p.offerEnd || "", featured: p.featured || false });
   };
 
   const saveEdit = async (p: MyProduct) => {
@@ -131,8 +131,9 @@ export default function BusinessProductsPage() {
 
   const addProduct = async (cat: CatalogProduct) => {
     if (!businessId) return;
-    const f = addForm[cat.id] || { price: "", inStock: true, offerPrice: "", offerEnd: "" };
+    const f = addForm[cat.id] || { price: "", inStock: true, hasOffer: false, offerPrice: "", offerEnd: "" };
     if (!f.price || isNaN(Number(f.price))) { alert("Vendos çmimin!"); return; }
+    if (f.hasOffer && (!f.offerPrice || isNaN(Number(f.offerPrice)))) { alert("Vendos çmimin e ofertës!"); return; }
     const alreadyAdded = myProducts.some(p => p.productId === cat.id);
     if (alreadyAdded) { alert("Ky produkt është shtuar tashmë!"); return; }
     setSaving(cat.id);
@@ -143,8 +144,8 @@ export default function BusinessProductsPage() {
         productId: cat.id,
         price: Number(f.price),
         inStock: f.inStock,
-        offerPrice: f.offerPrice ? Number(f.offerPrice) : null,
-        offerEnd: f.offerEnd || null,
+        offerPrice: f.hasOffer && f.offerPrice ? Number(f.offerPrice) : null,
+        offerEnd: f.hasOffer && f.offerEnd ? f.offerEnd : null,
         featured: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -239,19 +240,9 @@ export default function BusinessProductsPage() {
                     </>
                   ) : (
                     <div className="pr-edit-form">
-                      <div className="pr-edit-row">
-                        <div className="pr-edit-field">
-                          <label>Çmimi (L) *</label>
-                          <input type="number" value={editForm.price} onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))} placeholder="p.sh. 2500" />
-                        </div>
-                        <div className="pr-edit-field">
-                          <label>Çmimi ofertë (L)</label>
-                          <input type="number" value={editForm.offerPrice} onChange={e => setEditForm(f => ({ ...f, offerPrice: e.target.value }))} placeholder="opsional" />
-                        </div>
-                        <div className="pr-edit-field">
-                          <label>Data fund ofertës</label>
-                          <input type="date" value={editForm.offerEnd} onChange={e => setEditForm(f => ({ ...f, offerEnd: e.target.value }))} />
-                        </div>
+                      <div className="pr-edit-field">
+                        <label>Çmimi normal (L) *</label>
+                        <input type="number" value={editForm.price} onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))} placeholder="p.sh. 2500" />
                       </div>
                       <div className="pr-edit-checks">
                         <label className="pr-check">
@@ -262,7 +253,31 @@ export default function BusinessProductsPage() {
                           <input type="checkbox" checked={editForm.featured} onChange={e => setEditForm(f => ({ ...f, featured: e.target.checked }))} />
                           Featured
                         </label>
+                        <label className="pr-check pr-check-offer">
+                          <input type="checkbox" checked={editForm.hasOffer} onChange={e => setEditForm(f => ({ ...f, hasOffer: e.target.checked }))} />
+                          🏷 Shto ofertë
+                        </label>
                       </div>
+                      {editForm.hasOffer && (
+                        <div className="pr-offer-section">
+                          <div className="pr-offer-row">
+                            <div className="pr-edit-field">
+                              <label>Çmimi i ofertës (L) *</label>
+                              <input type="number" value={editForm.offerPrice} onChange={e => setEditForm(f => ({ ...f, offerPrice: e.target.value }))} placeholder="p.sh. 1800" />
+                            </div>
+                            <div className="pr-edit-field">
+                              <label>Oferta mbaron më</label>
+                              <input type="date" value={editForm.offerEnd} onChange={e => setEditForm(f => ({ ...f, offerEnd: e.target.value }))} />
+                            </div>
+                          </div>
+                          {editForm.price && editForm.offerPrice && (
+                            <p className="pr-offer-preview">
+                              Zbritje: {Math.round((1 - Number(editForm.offerPrice) / Number(editForm.price)) * 100)}% 
+                              ({(Number(editForm.price) - Number(editForm.offerPrice)).toLocaleString()} L kursim)
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <div className="pr-edit-actions">
                         <button onClick={() => saveEdit(p)} disabled={saving === p.id} className="pr-btn-save">
                           {saving === p.id ? "Duke ruajtur..." : "✓ Ruaj"}
@@ -310,24 +325,49 @@ export default function BusinessProductsPage() {
                     {isAdded ? (
                       <span className="pr-added-badge">✓ I shtuar</span>
                     ) : (
-                      <div className="pr-cat-form">
-                        <input type="number" placeholder="Çmimi (L) *" value={f.price}
-                          onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, price: e.target.value } }))}
-                          className="pr-cat-price" />
-                        <input type="number" placeholder="Ofertë (L)" value={f.offerPrice}
-                          onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, offerPrice: e.target.value } }))}
-                          className="pr-cat-price" />
-                        <input type="date" value={f.offerEnd} title="Fund ofertës"
-                          onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, offerEnd: e.target.value } }))}
-                          className="pr-cat-price" />
-                        <label className="pr-check pr-check-small">
-                          <input type="checkbox" checked={f.inStock}
-                            onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, inStock: e.target.checked } }))} />
-                          Në stok
-                        </label>
-                        <button onClick={() => addProduct(c)} disabled={saving === c.id || !f.price} className="pr-btn-add">
-                          {saving === c.id ? "..." : "➕ Shto"}
-                        </button>
+                      <div className="pr-cat-form-v2">
+                        <div className="pr-cat-form-row">
+                          <div className="pr-edit-field">
+                            <label>Çmimi (L) *</label>
+                            <input type="number" placeholder="p.sh. 2500" value={f.price}
+                              onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, price: e.target.value } }))}
+                              className="pr-cat-price-v2" />
+                          </div>
+                          <div className="pr-cat-form-checks">
+                            <label className="pr-check pr-check-small">
+                              <input type="checkbox" checked={f.inStock}
+                                onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, inStock: e.target.checked } }))} />
+                              Në stok
+                            </label>
+                            <label className="pr-check pr-check-small pr-check-offer">
+                              <input type="checkbox" checked={f.hasOffer || false}
+                                onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, hasOffer: e.target.checked } }))} />
+                              🏷 Ofertë
+                            </label>
+                          </div>
+                          <button onClick={() => addProduct(c)} disabled={saving === c.id || !f.price} className="pr-btn-add">
+                            {saving === c.id ? "..." : "➕ Shto"}
+                          </button>
+                        </div>
+                        {f.hasOffer && (
+                          <div className="pr-offer-row pr-offer-row-sm">
+                            <div className="pr-edit-field">
+                              <label>Çmimi ofertë (L) *</label>
+                              <input type="number" placeholder="p.sh. 1800" value={f.offerPrice || ""}
+                                onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, offerPrice: e.target.value } }))}
+                                className="pr-cat-price-v2" />
+                            </div>
+                            <div className="pr-edit-field">
+                              <label>Oferta mbaron më</label>
+                              <input type="date" value={f.offerEnd || ""}
+                                onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, offerEnd: e.target.value } }))}
+                                className="pr-cat-price-v2" />
+                            </div>
+                            {f.price && f.offerPrice && (
+                              <p className="pr-offer-preview">-{Math.round((1 - Number(f.offerPrice) / Number(f.price)) * 100)}% zbritje</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -406,7 +446,17 @@ export default function BusinessProductsPage() {
         .pr-cat-price:focus{border-color:rgba(249,115,22,0.4)}
         .pr-btn-add{padding:0.5rem 1rem;background:#f97316;color:#fff;border:none;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
         .pr-btn-add:disabled{opacity:0.5;cursor:not-allowed}
-        @media(max-width:600px){.pr-item{flex-direction:column}.pr-edit-row{grid-template-columns:1fr}.pr-cat-form{width:100%}.pr-cat-price{width:80px}}
+        .pr-check-offer{color:#f5c842!important}
+        .pr-offer-section{background:rgba(245,200,66,0.05);border:1px solid rgba(245,200,66,0.15);border-radius:10px;padding:0.75rem}
+        .pr-offer-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+        .pr-offer-row-sm{margin-top:8px}
+        .pr-offer-preview{font-size:0.75rem;color:#22c55e;font-weight:600;margin-top:6px}
+        .pr-cat-form-v2{display:flex;flex-direction:column;gap:8px;min-width:260px}
+        .pr-cat-form-row{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
+        .pr-cat-price-v2{padding:0.5rem 0.7rem;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#f4f4f5;font-size:0.82rem;outline:none;font-family:inherit;width:110px}
+        .pr-cat-price-v2:focus{border-color:rgba(249,115,22,0.4)}
+        .pr-cat-form-checks{display:flex;flex-direction:column;gap:6px}
+        @media(max-width:600px){.pr-item{flex-direction:column}.pr-edit-row{grid-template-columns:1fr}.pr-cat-form{width:100%}.pr-cat-price{width:80px}.pr-cat-form-row{flex-direction:column}.pr-offer-row{grid-template-columns:1fr}}
       `}</style>
     </div>
   );
