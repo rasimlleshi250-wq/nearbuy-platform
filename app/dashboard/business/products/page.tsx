@@ -25,21 +25,29 @@ export default function BusinessProductsPage() {
     if (!user) return;
     const load = async () => {
       try {
-        // Gjej biznesin
-        const bizSnap = await getDoc(doc(db, "businesses", user.uid));
-        const bid = bizSnap.exists() ? user.uid : null;
+        // Gjej ID-në e dokumentit të biznesit (jo user.uid)
+        let bid: string | null = null;
 
-        if (!bid) {
-          // Provo me ownerUID
-          const q = query(collection(db, "businesses"), where("ownerUID", "==", user.uid));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            setBusinessId(snap.docs[0].id);
-            loadProducts(snap.docs[0].id);
-          }
+        // Kontrollo nëse ekziston dokument me ID = user.uid
+        const bizSnap = await getDoc(doc(db, "businesses", user.uid));
+        if (bizSnap.exists()) {
+          bid = user.uid;
         } else {
+          // Kërko me ownerUID ose uid
+          const q1 = query(collection(db, "businesses"), where("ownerUID", "==", user.uid));
+          const snap1 = await getDocs(q1);
+          if (!snap1.empty) {
+            bid = snap1.docs[0].id;
+          } else {
+            const q2 = query(collection(db, "businesses"), where("uid", "==", user.uid));
+            const snap2 = await getDocs(q2);
+            if (!snap2.empty) bid = snap2.docs[0].id;
+          }
+        }
+
+        if (bid) {
           setBusinessId(bid);
-          loadProducts(bid);
+          await loadProducts(bid);
         }
       } catch (e) {
         console.error(e);
@@ -54,7 +62,22 @@ export default function BusinessProductsPage() {
       const prods: Product[] = [];
       for (const d of snap.docs) {
         const data = d.data();
-        prods.push({ id: d.id, ...data } as Product);
+        // Merr emrin dhe imazhin nga koleksioni products
+        let name = data.name || "";
+        let image = data.image || "";
+        let category = data.category || "";
+        if (data.productId) {
+          try {
+            const prodSnap = await getDoc(doc(db, "products", data.productId));
+            if (prodSnap.exists()) {
+              const pd = prodSnap.data();
+              name = pd.name || name;
+              image = pd.images?.[0] || image;
+              category = pd.category || category;
+            }
+          } catch (e) { console.error(e); }
+        }
+        prods.push({ id: d.id, name, image, category, price: data.price, inStock: data.inStock } as Product);
       }
       setProducts(prods);
       setLoading(false);
