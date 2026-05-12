@@ -406,8 +406,8 @@ export default function HomePage() {
         .nb-footer-logo{font-size:1rem;font-weight:800;color:#fff}
         .nb-footer-logo span{color:#f5c842}
         .nb-footer-copy{font-size:0.78rem;color:#52525b}
-        @media(max-width:900px){.nb-biz-grid,.nb-pro-grid,.nb-how-grid,.nb-loading-row{grid-template-columns:repeat(2,1fr)}.nb-how-arrow{display:none}}
-        @media(max-width:600px){.nb-nav{padding:0 1rem}.nb-nav-link{display:none}.nb-hero{padding:5rem 1rem 3rem}.nb-cat-grid{grid-template-columns:repeat(2,1fr)}.nb-biz-grid,.nb-pro-grid,.nb-how-grid,.nb-loading-row{grid-template-columns:1fr}.nb-cta-title{font-size:1.5rem}}
+        @media(max-width:900px){.nb-biz-grid,.nb-pro-grid,.nb-how-grid,.nb-loading-row{grid-template-columns:repeat(2,1fr)}.nb-how-arrow{display:none}.nb-prod-grid{grid-template-columns:repeat(2,1fr)}}
+        @media(max-width:600px){.nb-nav{padding:0 1rem}.nb-nav-link{display:none}.nb-hero{padding:5rem 1rem 3rem}.nb-cat-grid{grid-template-columns:repeat(2,1fr)}.nb-biz-grid,.nb-pro-grid,.nb-how-grid,.nb-loading-row,.nb-prod-grid{grid-template-columns:repeat(2,1fr)}.nb-cta-title{font-size:1.5rem}}
       `}</style>
     </main>
   );
