@@ -85,6 +85,51 @@ export default function BusinessSetupPage() {
     );
   };
 
+  const parseMapsLink = (link: string) => {
+    try {
+      // Format 1: https://maps.google.com/maps?q=41.3275,19.8187
+      // Format 2: https://www.google.com/maps/place/.../@41.3275,19.8187,17z
+      // Format 3: https://maps.app.goo.gl/... (short link - cannot parse directly)
+      // Format 4: https://www.google.com/maps?q=41.3275,19.8187
+      // Format 5: geo:41.3275,19.8187
+
+      // Try @lat,lng format (most common from share button)
+      const atMatch = link.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (atMatch) {
+        return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+      }
+
+      // Try ?q=lat,lng format
+      const qMatch = link.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (qMatch) {
+        return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
+      }
+
+      // Try ll=lat,lng format
+      const llMatch = link.match(/ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (llMatch) {
+        return { lat: parseFloat(llMatch[1]), lng: parseFloat(llMatch[2]) };
+      }
+
+      // Try plain coordinates pasted directly (41.3275, 19.8187)
+      const coordMatch = link.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
+      if (coordMatch) {
+        return { lat: parseFloat(coordMatch[1]), lng: parseFloat(coordMatch[2]) };
+      }
+
+      return null;
+    } catch { return null; }
+  };
+
+  const handleMapsLink = (link: string) => {
+    setForm(p => ({ ...p, mapsLink: link }));
+    if (!link.trim()) return;
+    const coords = parseMapsLink(link.trim());
+    if (coords) {
+      setForm(p => ({ ...p, mapsLink: link, lat: coords.lat, lng: coords.lng }));
+    }
+  };
+
   const handleSubmit = async () => {
     if (!user) return;
     if (!form.name || !form.category || !form.city || !form.address || !form.phone) {
@@ -213,8 +258,13 @@ export default function BusinessSetupPage() {
                   </>
                 ) : (
                   <>
-                    <input type="text" placeholder="Ngjit linkun e Google Maps..." value={form.mapsLink} onChange={e => setForm(p => ({ ...p, mapsLink: e.target.value }))} />
-                    <p className="loc-warning">⚠️ Kjo funksion do të aktivizohet së shpejti.</p>
+                    <input type="text" placeholder="Ngjit linkun e Google Maps ose koordinatat..." value={form.mapsLink} onChange={e => handleMapsLink(e.target.value)} />
+                    {form.mapsLink && form.lat !== 0 && (
+                      <p className="loc-success">✓ Koordinatat u gjetën: {form.lat.toFixed(4)}, {form.lng.toFixed(4)}</p>
+                    )}
+                    {form.mapsLink && form.lat === 0 && (
+                      <p className="loc-warning">⚠️ Nuk u gjetën koordinata. Provo: klik i djathtë në Maps → "Copy coordinates"</p>
+                    )}
                   </>
                 )}
               </div>
