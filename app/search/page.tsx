@@ -4,8 +4,17 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { trackView, trackContact } from "@/lib/firebase/analytics";
+
+interface BusinessWithProduct extends Business {
+  matchedProduct?: {
+    name: string;
+    price: number;
+    image?: string;
+    offerPrice?: number;
+  };
+}
 
 interface Business {
   id: string;
@@ -36,27 +45,91 @@ function SearchContent() {
   useEffect(() => {
     const load = async () => {
       try {
-        const q = query(collection(db, "businesses"), where("verified", "==", true));
-        const snap = await getDocs(q);
-        const bizs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Business));
-        setBusinesses(bizs);
-        // Gjurmo shikimet
-        bizs.forEach(b => trackView("businesses", b.id));
+        const searchTerm = searchParams.get("q") || "";
+        
+        // Ngarko bizneset e verifikuara
+        const bizQ = query(collection(db, "businesses"), where("verified", "==", true));
+        const bizSnap = await getDocs(bizQ);
+        const allBizs = bizSnap.docs.map(d => ({ id: d.id, ...d.data() } as Business));
+        
+        if (searchTerm.trim()) {
+          // Kërko te produktet fillimisht
+          const prodSnap = await getDocs(collection(db, "products"));
+          const matchingProducts = prodSnap.docs
+            .filter(d => {
+              const data = d.data();
+              return data.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                     data.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                     data.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                     data.description?.toLowerCase().includes(searchTerm.toLowerCase());
+            })
+            .map(d => ({ id: d.id, ...d.data() }));
+
+          if (matchingProducts.length > 0) {
+            // Gjej bizneset që kanë këto produkte
+            const productIds = matchingProducts.map((p: any) => p.id);
+            const bizProductsSnap = await getDocs(collection(db, "business_products"));
+            const bizProductMatches = bizProductsSnap.docs
+              .filter(d => productIds.includes(d.data().productId))
+              .map(d => d.data());
+
+            const bizIdsWithProduct = new Set(bizProductMatches.map((bp: any) => bp.businessId));
+            
+            // Bashko me bizneset
+            const bizsWithProducts: BusinessWithProduct[] = [];
+            for (const biz of allBizs) {
+              if (bizIdsWithProduct.has(biz.id)) {
+                const bp = bizProductMatches.find((b: any) => b.businessId === biz.id);
+                const prod = matchingProducts.find((p: any) => p.id === bp?.productId) as any;
+                bizsWithProducts.push({
+                  ...biz,
+                  matchedProduct: prod ? {
+                    name: prod.name,
+                    price: bp?.price || 0,
+                    image: prod.images?.[0],
+                    offerPrice: bp?.offerPrice || undefined,
+                  } : undefined
+                });
+              }
+            }
+            
+            // Shto edhe bizneset që përputhen me emrin/kategorinë
+            const bizByName = allBizs.filter(b =>
+              !bizIdsWithProduct.has(b.id) && (
+                b.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                b.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                b.description?.toLowerCase().includes(searchTerm.toLowerCase())
+              )
+            );
+            
+            const combined = [...bizsWithProducts, ...bizByName];
+            setBusinesses(combined);
+            combined.forEach(b => trackView("businesses", b.id));
+          } else {
+            // Kërkim i thjeshtë te bizneset
+            const filtered = allBizs.filter(b =>
+              b.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              b.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              b.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              b.description?.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+            setBusinesses(filtered);
+            filtered.forEach(b => trackView("businesses", b.id));
+          }
+        } else {
+          setBusinesses(allBizs);
+          allBizs.forEach(b => trackView("businesses", b.id));
+        }
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
     load();
-  }, []);
+  }, [searchParams]);
 
   const filtered = businesses.filter(b => {
     const matchCity = cityFilter === "Të gjitha" || b.city === cityFilter;
     const matchCat = catFilter === "Të gjitha" || b.category?.toLowerCase().includes(catFilter.toLowerCase());
-    const matchSearch = !search.trim() ||
-      b.name?.toLowerCase().includes(search.toLowerCase()) ||
-      b.category?.toLowerCase().includes(search.toLowerCase()) ||
-      b.city?.toLowerCase().includes(search.toLowerCase()) ||
-      b.description?.toLowerCase().includes(search.toLowerCase());
-    return matchCity && matchCat && matchSearch;
+    return matchCity && matchCat;
   });
 
   const handleSearch = (e: React.FormEvent) => {
@@ -127,6 +200,28 @@ function SearchContent() {
               <div key={b.id} className={`sr-card ${b.featured ? "sr-card-featured" : ""}`}>
                 {b.featured && <div className="sr-feat">⭐ Featured</div>}
                 <Link href={`/business/${b.id}`} className="sr-card-link">
+                  {(b as any).matchedProduct && (
+                    <div className="sr-product-match">
+                      <div className="sr-product-img">
+                        {(b as any).matchedProduct.image
+                          ? <img src={(b as any).matchedProduct.image} alt={(b as any).matchedProduct.name} />
+                          : <span>📦</span>}
+                      </div>
+                      <div className="sr-product-info">
+                        <p className="sr-product-name">{(b as any).matchedProduct.name}</p>
+                        <div className="sr-product-prices">
+                          {(b as any).matchedProduct.offerPrice ? (
+                            <>
+                              <span className="sr-offer-price">{(b as any).matchedProduct.offerPrice.toLocaleString()} L</span>
+                              <span className="sr-old-price">{(b as any).matchedProduct.price.toLocaleString()} L</span>
+                            </>
+                          ) : (
+                            <span className="sr-price">{(b as any).matchedProduct.price.toLocaleString()} L</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="sr-card-top">
                     <div className="sr-logo">
                       {b.logo ? <img src={b.logo} alt={b.name} /> : <span>🏪</span>}
@@ -203,6 +298,14 @@ function SearchContent() {
         .sr-call:hover{background:rgba(245,200,66,0.15)}
         .sr-view-btn{flex:1;text-align:center;padding:0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#a1a1aa;font-size:0.82rem;font-weight:500;text-decoration:none;transition:all .2s}
         .sr-view-btn:hover{border-color:rgba(249,115,22,0.3);color:#f97316}
+        .sr-product-match{display:flex;align-items:center;gap:10px;background:rgba(245,200,66,0.06);border:1px solid rgba(245,200,66,0.15);border-radius:10px;padding:8px 10px}
+        .sr-product-img{width:44px;height:44px;border-radius:8px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;font-size:1.2rem;overflow:hidden;flex-shrink:0}
+        .sr-product-img img{width:100%;height:100%;object-fit:cover}
+        .sr-product-name{font-size:0.8rem;font-weight:600;color:#e4e4e7;margin-bottom:3px}
+        .sr-product-prices{display:flex;align-items:center;gap:6px}
+        .sr-price{font-size:0.85rem;font-weight:700;color:#f5c842}
+        .sr-offer-price{font-size:0.85rem;font-weight:700;color:#f5c842}
+        .sr-old-price{font-size:0.75rem;color:#52525b;text-decoration:line-through}
         @media(max-width:600px){.sr-nav{padding:0 1rem}.sr-nav-link{display:none}.sr-search-bar{flex-direction:column}.sr-search-btn{padding:0.85rem}.sr-filters{flex-direction:column}}
       `}</style>
     </div>
