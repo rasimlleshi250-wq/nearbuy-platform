@@ -3,8 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "@/lib/firebase/config";
+import { db } from "@/lib/firebase/config";
 import { getCategories } from "@/lib/firebase/firestore";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
@@ -89,11 +88,27 @@ export default function EditProductPage() {
     if (!newImageFiles.length) return [];
     setUploading(true);
     const urls: string[] = [];
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "dvqcrh4qf";
     for (const file of newImageFiles) {
-      const storageRef = ref(storage, `products/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      urls.push(url);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", "nearbuy_products");
+        formData.append("folder", "nearbuy/products");
+        const res = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+          { method: "POST", body: formData }
+        );
+        const data = await res.json();
+        if (data.secure_url) {
+          urls.push(data.secure_url);
+        } else {
+          throw new Error(data.error?.message || "Upload failed");
+        }
+      } catch (e) {
+        console.error("Cloudinary upload error:", e);
+        setError("Gabim gjatë ngarkimit të fotos. Provo përsëri.");
+      }
     }
     setUploading(false);
     return urls;
