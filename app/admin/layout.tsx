@@ -12,6 +12,7 @@ const NAV = [
   { href: "/admin", label: "Overview", icon: "⊞", exact: true },
   { href: "/admin/products", label: "Produktet", icon: "🛍" },
   { href: "/admin/categories", label: "Kategorinë", icon: "📁" },
+  { href: "/admin/subcategories", label: "Nënkategoritë", icon: "📂" },
   { href: "/admin/businesses", label: "Bizneset", icon: "🏪" },
   { href: "/admin/professionals", label: "Profesionistët", icon: "👷" },
 ];

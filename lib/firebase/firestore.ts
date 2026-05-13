@@ -233,3 +233,41 @@ export async function updateProfessional(id: string, data: Partial<Professional>
 export function createGeoPoint(lat: number, lng: number): GeoPoint {
   return new GeoPoint(lat, lng);
 }
+
+// ════════════════════════════════════════════
+// SUBCATEGORIES
+// ════════════════════════════════════════════
+
+export interface Subcategory {
+  id: string;
+  name: string;
+  categoryName: string;
+  order: number;
+}
+
+export async function getSubcategories(categoryName?: string): Promise<Subcategory[]> {
+  let q;
+  if (categoryName) {
+    q = query(
+      collection(db, "subcategories"),
+      where("categoryName", "==", categoryName),
+      orderBy("order", "asc")
+    );
+  } else {
+    q = query(collection(db, "subcategories"), orderBy("categoryName", "asc"), orderBy("order", "asc"));
+  }
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Subcategory));
+}
+
+export async function createSubcategory(data: Omit<Subcategory, "id">) {
+  return await addDoc(collection(db, "subcategories"), data);
+}
+
+export async function updateSubcategory(id: string, data: Partial<Subcategory>) {
+  await updateDoc(doc(db, "subcategories", id), data);
+}
+
+export async function deleteSubcategory(id: string) {
+  await deleteDoc(doc(db, "subcategories", id));
+}
