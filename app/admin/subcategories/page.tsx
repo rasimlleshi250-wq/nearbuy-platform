@@ -86,7 +86,7 @@ export default function AdminSubcategoriesPage() {
 
   const loadSubcategories = async () => {
     try {
-      const q = query(collection(db, "subcategories"), orderBy("categoryName"), orderBy("order"));
+      const q = query(collection(db, "subcategories"), orderBy("order"));
       const snap = await getDocs(q);
       setSubcategories(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subcategory)));
     } catch (e) { console.error(e); }
