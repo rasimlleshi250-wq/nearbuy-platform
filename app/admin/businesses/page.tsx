@@ -52,7 +52,7 @@ export default function AdminBusinessesPage() {
       subscriptionEnd: endDate.toISOString().split("T")[0],
     });
     setBusinesses(prev => prev.map(b =>
-      b.id === id ? { ...b, subscription: requestedPlan as any, planStatus: "active" as any, requestedPlan: undefined, subscriptionStart: now.toISOString().split("T")[0], subscriptionEnd: endDate.toISOString().split("T")[0] } : b
+      b.id === id ? { ...b, subscription: requestedPlan as any, planStatus: "active" as any, requestedPlan: undefined } as any : b
     ));
     setActionLoading(null);
   };
