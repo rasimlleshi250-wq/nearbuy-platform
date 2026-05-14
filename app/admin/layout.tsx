@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useUserProfile } from "@/lib/hooks/useUserProfile";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { signOut } from "firebase/auth";
+import { signOut, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 
 const NAV = [
@@ -23,6 +23,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setPersistence(auth, browserSessionPersistence).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !profileLoading) {
