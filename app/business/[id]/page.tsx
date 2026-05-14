@@ -12,6 +12,7 @@ interface Business {
   name: string;
   city: string;
   category: string;
+  categories?: string[];
   address?: string;
   phone?: string;
   description?: string;
@@ -132,7 +133,12 @@ export default function BusinessPublicPage() {
                 {business.verified && <span className="biz-pub-verified">✓ Verifikuar</span>}
                 {business.featured && <span className="biz-pub-featured">⭐ Featured</span>}
               </div>
-              <p className="biz-pub-meta">{business.category} · 📍 {business.city}</p>
+              <div className="biz-pub-cats">
+                {(business.categories && business.categories.length > 0 ? business.categories : [business.category]).map(cat => (
+                  <span key={cat} className="biz-pub-cat-badge">{cat}</span>
+                ))}
+                <span className="biz-pub-city">📍 {business.city}</span>
+              </div>
               {business.address && <p className="biz-pub-addr">🗺 {business.address}</p>}
             </div>
           </div>
@@ -284,6 +290,9 @@ export default function BusinessPublicPage() {
         .biz-pub-verified{font-size:0.72rem;font-weight:600;color:#22c55e;background:rgba(34,197,94,0.1);padding:3px 8px;border-radius:6px;border:1px solid rgba(34,197,94,0.2)}
         .biz-pub-featured{font-size:0.72rem;font-weight:600;color:#f5c842;background:rgba(245,200,66,0.1);padding:3px 8px;border-radius:6px;border:1px solid rgba(245,200,66,0.2)}
         .biz-pub-meta{font-size:0.875rem;color:#71717a;margin-bottom:4px}
+        .biz-pub-cats{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px}
+        .biz-pub-cat-badge{font-size:0.72rem;font-weight:600;padding:3px 9px;border-radius:6px;background:rgba(249,115,22,0.1);color:#f97316;border:1px solid rgba(249,115,22,0.2)}
+        .biz-pub-city{font-size:0.78rem;color:#71717a}
         .biz-pub-addr{font-size:0.8rem;color:#52525b}
         .biz-pub-actions{display:flex;flex-direction:column;gap:8px;flex-shrink:0}
         .biz-pub-call{display:block;padding:0.65rem 1.25rem;background:#f97316;color:#fff;font-size:0.875rem;font-weight:700;border-radius:10px;text-decoration:none;text-align:center;transition:background .2s}
