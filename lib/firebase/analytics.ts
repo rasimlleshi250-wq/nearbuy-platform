@@ -1,5 +1,5 @@
 import { db } from "@/lib/firebase/config";
-import { doc, getDoc, setDoc, updateDoc, increment, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { doc, setDoc, updateDoc, increment, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 
 // ── Format date as YYYY-MM-DD ──
 const today = () => new Date().toISOString().split("T")[0];
@@ -8,12 +8,7 @@ const today = () => new Date().toISOString().split("T")[0];
 export async function trackView(type: "businesses" | "professionals", id: string) {
   try {
     const ref = doc(db, "analytics", type, id, "views", today());
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      await updateDoc(ref, { count: increment(1), date: today() });
-    } else {
-      await setDoc(ref, { count: 1, date: today() });
-    }
+    await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackView error:", e); }
 }
 
@@ -21,12 +16,7 @@ export async function trackView(type: "businesses" | "professionals", id: string
 export async function trackContact(type: "businesses" | "professionals", id: string) {
   try {
     const ref = doc(db, "analytics", type, id, "contacts", today());
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      await updateDoc(ref, { count: increment(1), date: today() });
-    } else {
-      await setDoc(ref, { count: 1, date: today() });
-    }
+    await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackContact error:", e); }
 }
 
@@ -34,12 +24,7 @@ export async function trackContact(type: "businesses" | "professionals", id: str
 export async function trackMapsClick(id: string) {
   try {
     const ref = doc(db, "analytics", "businesses", id, "maps", today());
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      await updateDoc(ref, { count: increment(1), date: today() });
-    } else {
-      await setDoc(ref, { count: 1, date: today() });
-    }
+    await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackMapsClick error:", e); }
 }
 
@@ -47,12 +32,7 @@ export async function trackMapsClick(id: string) {
 export async function trackProductClick(businessId: string, productId: string, productName: string) {
   try {
     const ref = doc(db, "analytics", "businesses", businessId, "products", productId);
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      await updateDoc(ref, { count: increment(1), name: productName });
-    } else {
-      await setDoc(ref, { count: 1, name: productName, productId });
-    }
+    await setDoc(ref, { count: increment(1), name: productName, productId }, { merge: true });
   } catch (e) { console.error("trackProductClick error:", e); }
 }
 
