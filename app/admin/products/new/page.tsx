@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { createProduct, getCategories } from "@/lib/firebase/firestore";
+import { createProduct, getCategories, getSubcategories } from "@/lib/firebase/firestore";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Category } from "@/types";
@@ -11,6 +11,8 @@ export default function NewProductPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<{id:string;name:string}[]>([]);
+  const [loadingSubs, setLoadingSubs] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -22,6 +24,7 @@ export default function NewProductPage() {
     name: "",
     description: "",
     category: "",
+    subcategory: "",
     brand: "",
     barcode: "",
     tags: "",
@@ -30,6 +33,15 @@ export default function NewProductPage() {
   useEffect(() => {
     getCategories().then(setCategories);
   }, []);
+
+  useEffect(() => {
+    if (!form.category) { setSubcategories([]); return; }
+    setLoadingSubs(true);
+    setForm(p => ({ ...p, subcategory: "" }));
+    getSubcategories(form.category)
+      .then(setSubcategories)
+      .finally(() => setLoadingSubs(false));
+  }, [form.category]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -92,6 +104,7 @@ export default function NewProductPage() {
         name: form.name.trim(),
         description: form.description.trim(),
         category: form.category,
+        subcategory: form.subcategory,
         brand: form.brand.trim(),
         barcode: form.barcode.trim(),
         tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
@@ -164,20 +177,37 @@ export default function NewProductPage() {
                   )}
                 </div>
                 <div className="adm-field">
+                  <label>Nënkategoria {loadingSubs && <span className="adm-hint" style={{textTransform:"none"}}>duke ngarkuar...</span>}</label>
+                  <select value={form.subcategory}
+                    onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}
+                    disabled={!form.category || loadingSubs}>
+                    <option value="">Zgjidh nënkategorinë...</option>
+                    {subcategories.map(s => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
+                  {form.category && !loadingSubs && subcategories.length === 0 && (
+                    <p className="adm-hint">Nuk ka nënkategori për këtë kategori</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="adm-field-row">
+                <div className="adm-field">
                   <label>Marka</label>
                   <input type="text" placeholder="p.sh. Samsung, Apple..."
                     value={form.brand}
                     onChange={e => setForm(p => ({ ...p, brand: e.target.value }))} />
                 </div>
-              </div>
-
-              <div className="adm-field-row">
                 <div className="adm-field">
                   <label>Barkodi</label>
                   <input type="text" placeholder="EAN/UPC opsional"
                     value={form.barcode}
                     onChange={e => setForm(p => ({ ...p, barcode: e.target.value }))} />
                 </div>
+              </div>
+
+              <div className="adm-field-row">
                 <div className="adm-field">
                   <label>Tags</label>
                   <input type="text" placeholder="smartphone, android, 5G"
