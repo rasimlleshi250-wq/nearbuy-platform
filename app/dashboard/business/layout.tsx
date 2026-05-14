@@ -85,6 +85,23 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
                   {plan.charAt(0).toUpperCase() + plan.slice(1)}
                 </span>
               )}
+              {business?.subscriptionEnd && (() => {
+                const end = business.subscriptionEnd instanceof Date
+                  ? business.subscriptionEnd
+                  : (business.subscriptionEnd as any).toDate?.() ?? new Date(business.subscriptionEnd as any);
+                const daysLeft = Math.ceil((end.getTime() - Date.now()) / 86400000);
+                const expired = daysLeft < 0;
+                const soon = daysLeft >= 0 && daysLeft <= 7;
+                const color = expired ? "#ef4444" : soon ? "#f97316" : "#71717a";
+                const label = expired
+                  ? "⚠ Skaduar"
+                  : `Deri ${end.toLocaleDateString("sq-AL", { day: "numeric", month: "short", year: "numeric" })}`;
+                return (
+                  <span className="biz-exp-badge" style={{ color, borderColor: `${color}33`, background: `${color}11` }}>
+                    {label}
+                  </span>
+                );
+              })()}
             </div>
           </Link>
 
@@ -156,6 +173,7 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
         .biz-brand-name{font-size:1rem;font-weight:700;color:#fff;letter-spacing:-0.02em;display:block;line-height:1.2}
         .biz-brand-name em{color:#f97316;font-style:normal}
         .biz-plan-badge{font-size:0.65rem;padding:1px 7px;border-radius:4px;font-weight:600;border:1px solid;display:inline-block;margin-top:2px}
+        .biz-exp-badge{font-size:0.62rem;padding:1px 7px;border-radius:4px;font-weight:500;border:1px solid;display:inline-block;margin-top:3px;margin-left:2px}
         .biz-shop-info{display:flex;align-items:center;gap:10px;padding:0.75rem;background:rgba(255,255,255,0.04);border-radius:10px;margin-bottom:1.25rem;border:1px solid rgba(255,255,255,0.07)}
         .biz-shop-logo{width:36px;height:36px;border-radius:8px;background:rgba(249,115,22,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
         .biz-shop-logo img{width:100%;height:100%;object-fit:cover}
