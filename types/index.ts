@@ -29,6 +29,7 @@ export interface Product {
   name: string;
   description: string;
   category: string;
+  subcategory?: string;
   brand?: string;
   images: string[];
   barcode?: string;
@@ -55,6 +56,8 @@ export interface Business {
   logo?: string;
   coverImage?: string;
   subscription: SubscriptionPlan;
+  category?: string;
+  categories?: string[];
   subscriptionEnd?: Timestamp;
   schedule?: string;
   verified: boolean;
