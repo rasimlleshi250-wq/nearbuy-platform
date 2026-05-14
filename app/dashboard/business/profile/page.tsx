@@ -18,7 +18,7 @@ export default function BusinessProfilePage() {
 
   const [form, setForm] = useState({
     name: "",
-    category: "",
+    categories: [] as string[],
     city: "",
     address: "",
     phone: "",
@@ -35,7 +35,7 @@ export default function BusinessProfilePage() {
           setDocId(user.uid);
           setForm({
             name: d.name || "",
-            category: d.category || "",
+            categories: d.categories || (d.category ? [d.category] : []),
             city: d.city || "",
             address: d.address || "",
             phone: d.phone || "",
@@ -49,7 +49,7 @@ export default function BusinessProfilePage() {
             setDocId(snap.docs[0].id);
             setForm({
               name: d.name || "",
-              category: d.category || "",
+              categories: d.categories || (d.category ? [d.category] : []),
               city: d.city || "",
               address: d.address || "",
               phone: d.phone || "",
@@ -66,10 +66,19 @@ export default function BusinessProfilePage() {
     load();
   }, [user]);
 
+  const toggleCategory = (cat: string) => {
+    setForm(p => ({
+      ...p,
+      categories: p.categories.includes(cat)
+        ? p.categories.filter(c => c !== cat)
+        : [...p.categories, cat]
+    }));
+  };
+
   const handleSave = async () => {
     if (!user || !docId) return;
-    if (!form.name || !form.category || !form.city || !form.address || !form.phone) {
-      setError("Plotëso të gjitha fushat e detyrueshme.");
+    if (!form.name || form.categories.length === 0 || !form.city || !form.address || !form.phone) {
+      setError("Plotëso të gjitha fushat e detyrueshme dhe zgjidh të paktën një kategori.");
       return;
     }
     setSaving(true);
@@ -77,7 +86,8 @@ export default function BusinessProfilePage() {
     try {
       await updateDoc(doc(db, "businesses", docId), {
         name: form.name.trim(),
-        category: form.category,
+        categories: form.categories,
+        category: form.categories[0],
         city: form.city,
         address: form.address.trim(),
         phone: form.phone.trim(),
@@ -118,11 +128,19 @@ export default function BusinessProfilePage() {
           </div>
 
           <div className="pf-field">
-            <label>Kategoria <span className="req">*</span></label>
-            <select value={form.category} onChange={f("category")}>
-              <option value="">Zgjidh kategorinë...</option>
-              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <label>Kategoritë <span className="req">*</span></label>
+            <div className="pf-cat-grid">
+              {CATEGORIES.map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => toggleCategory(cat)}
+                  className={`pf-cat-btn ${form.categories.includes(cat) ? "active" : ""}`}
+                >
+                  {form.categories.includes(cat) ? "✓ " : ""}{cat}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="pf-row">
@@ -159,6 +177,10 @@ export default function BusinessProfilePage() {
       </div>
 
       <style>{`
+        .pf-cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .pf-cat-btn { padding: 0.6rem 0.9rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; color: #a1a1aa; font-size: 0.85rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; text-align: left; }
+        .pf-cat-btn:hover { background: rgba(249,115,22,0.08); border-color: rgba(249,115,22,0.2); color: #f97316; }
+        .pf-cat-btn.active { background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.4); color: #f97316; font-weight: 600; }
         .pf-root { display: flex; flex-direction: column; gap: 1.5rem; max-width: 600px; }
         .pf-title { font-size: 1.3rem; font-weight: 700; color: #f4f4f5; letter-spacing: -0.02em; }
         .pf-sub { font-size: 0.82rem; color: #71717a; margin-top: 2px; }
