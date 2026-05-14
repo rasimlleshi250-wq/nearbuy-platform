@@ -41,13 +41,18 @@ export default function AdminBusinessesPage() {
 
   const approvePlan = async (id: string, requestedPlan: string) => {
     setActionLoading(id + "_plan");
+    const now = new Date();
+    const endDate = new Date(now);
+    endDate.setMonth(endDate.getMonth() + 1);
     await updateDoc(doc(db, "businesses", id), {
       subscription: requestedPlan,
       planStatus: "active",
       requestedPlan: null,
+      subscriptionStart: now.toISOString().split("T")[0],
+      subscriptionEnd: endDate.toISOString().split("T")[0],
     });
     setBusinesses(prev => prev.map(b =>
-      b.id === id ? { ...b, subscription: requestedPlan as any, planStatus: "active" as any, requestedPlan: undefined } : b
+      b.id === id ? { ...b, subscription: requestedPlan as any, planStatus: "active" as any, requestedPlan: undefined, subscriptionStart: now.toISOString().split("T")[0], subscriptionEnd: endDate.toISOString().split("T")[0] } : b
     ));
     setActionLoading(null);
   };
@@ -62,6 +67,28 @@ export default function AdminBusinessesPage() {
       b.id === id ? { ...b, planStatus: "rejected", requestedPlan: undefined } : b
     ));
     setActionLoading(null);
+  };
+
+  const isExpired = (dateStr?: string) => {
+    if (!dateStr) return false;
+    return new Date(dateStr) < new Date();
+  };
+
+  const isExpiringSoon = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = (d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    return diff >= 0 && diff <= 7;
+  };
+
+  const renewSubscription = async (id: string, currentEnd?: string) => {
+    const base = currentEnd && new Date(currentEnd) > new Date() ? new Date(currentEnd) : new Date();
+    const newEnd = new Date(base);
+    newEnd.setMonth(newEnd.getMonth() + 1);
+    const newEndStr = newEnd.toISOString().split("T")[0];
+    await updateDoc(doc(db, "businesses", id), { subscriptionEnd: newEndStr });
+    setBusinesses(prev => prev.map(b => b.id === id ? { ...b, subscriptionEnd: newEndStr } as any : b));
   };
 
   const filtered = businesses.filter(b => {
@@ -124,6 +151,7 @@ export default function AdminBusinessesPage() {
                 <th>Qyteti</th>
                 <th>Plani aktual</th>
                 <th>Kërkesë plani</th>
+                <th>Abonimenti</th>
                 <th>Aprovuar</th>
                 <th>Featured</th>
               </tr>
@@ -153,6 +181,31 @@ export default function AdminBusinessesPage() {
                       <span className="adm-sub-badge" style={{ background: `${pc}18`, color: pc, borderColor: `${pc}40` }}>
                         {b.subscription || "free"}
                       </span>
+                    </td>
+                    <td>
+                      {bAny.subscriptionStart ? (
+                        <div className="adm-sub-dates">
+                          <div className="adm-sub-date-row">
+                            <span className="adm-date-label">Filloi:</span>
+                            <span className="adm-date-val">{bAny.subscriptionStart}</span>
+                          </div>
+                          <div className="adm-sub-date-row">
+                            <span className="adm-date-label">Mbaron:</span>
+                            <span className={`adm-date-val ${isExpiringSoon(bAny.subscriptionEnd) ? "adm-date-warn" : isExpired(bAny.subscriptionEnd) ? "adm-date-expired" : ""}`}>
+                              {bAny.subscriptionEnd}
+                              {isExpired(bAny.subscriptionEnd) && <span className="adm-expired-badge">Skaduar</span>}
+                              {!isExpired(bAny.subscriptionEnd) && isExpiringSoon(bAny.subscriptionEnd) && <span className="adm-warn-badge">Shpejt</span>}
+                            </span>
+                          </div>
+                          {b.subscription !== "free" && (
+                            <button onClick={() => renewSubscription(b.id, bAny.subscriptionEnd)} className="adm-btn-renew">
+                              ↻ Rinovо
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="adm-text-muted" style={{ fontSize: "0.78rem" }}>—</span>
+                      )}
                     </td>
                     <td>
                       {hasPlanRequest ? (
@@ -244,6 +297,16 @@ export default function AdminBusinessesPage() {
         .adm-toggle-btn.on{background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25)}
         .adm-toggle-btn.off{background:rgba(239,68,68,0.08);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
         .adm-toggle-btn:disabled{opacity:0.5;cursor:not-allowed}
+        .adm-sub-dates{display:flex;flex-direction:column;gap:4px}
+        .adm-sub-date-row{display:flex;align-items:center;gap:5px}
+        .adm-date-label{font-size:0.7rem;color:#52525b;min-width:42px}
+        .adm-date-val{font-size:0.78rem;color:#a1a1aa;display:flex;align-items:center;gap:4px}
+        .adm-date-warn{color:#f5c842!important}
+        .adm-date-expired{color:#f87171!important}
+        .adm-expired-badge{font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)}
+        .adm-warn-badge{font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(245,200,66,0.15);color:#f5c842;border:1px solid rgba(245,200,66,0.3)}
+        .adm-btn-renew{margin-top:3px;padding:3px 8px;border-radius:5px;border:1px solid rgba(59,130,246,0.3);background:rgba(59,130,246,0.08);color:#93c5fd;font-size:0.7rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
+        .adm-btn-renew:hover{background:rgba(59,130,246,0.15)}
       `}</style>
     </div>
   );
