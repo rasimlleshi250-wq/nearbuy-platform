@@ -23,6 +23,14 @@ export default function RegisterPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [bizName, setBizName] = useState("");
+  const [bizCity, setBizCity] = useState("");
+  const [bizPhone, setBizPhone] = useState("");
+  const [bizCategory, setBizCategory] = useState("");
+  const [bizAddress, setBizAddress] = useState("");
+
+  const CITIES = ["Tiranë","Durrës","Vlorë","Shkodër","Elbasan","Korçë","Fier","Berat","Lushnjë","Kavajë","Gjirokastër","Sarandë","Lezhë","Kukës","Pogradec","Peshkopi"];
+  const CATEGORIES = ["Hidraulikë","Elektrik","Ndërtim","Bojëra"];
 
   const passwordStrength = (p: string) => {
     if (!p) return 0;
@@ -59,8 +67,17 @@ export default function RegisterPage() {
     if (selectedRole === "business") {
       await setDoc(doc(db, "businesses", uid), {
         uid,
+        ownerUID: uid,
         email,
         displayName,
+        name: bizName.trim() || displayName,
+        city: bizCity,
+        phone: bizPhone.trim(),
+        category: bizCategory,
+        address: bizAddress.trim(),
+        verified: false,
+        featured: false,
+        subscription: "free",
         status: "pending",
         createdAt: serverTimestamp(),
       }, { merge: true });
@@ -73,6 +90,9 @@ export default function RegisterPage() {
     if (password !== confirmPassword) { setError("Fjalëkalimet nuk përputhen."); return; }
     if (password.length < 8) { setError("Fjalëkalimi duhet të ketë të paktën 8 karaktere."); return; }
     if (!termsAccepted) { setError("Duhet të pranosh Kushtet e Shërbimit dhe Politikën e Privatësisë."); return; }
+    if (role === "business" && (!bizName || !bizCity || !bizPhone || !bizCategory || !bizAddress)) {
+      setError("Plotëso të gjitha të dhënat e biznesit."); return;
+    }
     setError("");
     setLoading(true);
     try {
@@ -224,6 +244,53 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
+                  {role === "business" && (
+                    <div className="nb-biz-section">
+                      <div className="nb-biz-divider">Të dhënat e biznesit</div>
+
+                      <div className="nb-field">
+                        <label>Emri i dyqanit <span className="nb-req">*</span></label>
+                        <div className="nb-input-wrap">
+                          <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                          <input type="text" placeholder="p.sh. Brika Materiale" value={bizName} onChange={e => setBizName(e.target.value)} />
+                        </div>
+                      </div>
+
+                      <div className="nb-field-row2">
+                        <div className="nb-field">
+                          <label>Qyteti <span className="nb-req">*</span></label>
+                          <select value={bizCity} onChange={e => setBizCity(e.target.value)} className="nb-select">
+                            <option value="">Zgjidh...</option>
+                            {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div className="nb-field">
+                          <label>Kategoria <span className="nb-req">*</span></label>
+                          <select value={bizCategory} onChange={e => setBizCategory(e.target.value)} className="nb-select">
+                            <option value="">Zgjidh...</option>
+                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="nb-field">
+                        <label>Telefoni <span className="nb-req">*</span></label>
+                        <div className="nb-input-wrap">
+                          <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.4 2 2 0 0 1 3.6 1.2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.84a16 16 0 0 0 6 6l.95-.95a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z"/></svg>
+                          <input type="tel" placeholder="+355 6X XXX XXXX" value={bizPhone} onChange={e => setBizPhone(e.target.value)} />
+                        </div>
+                      </div>
+
+                      <div className="nb-field">
+                        <label>Adresa <span className="nb-req">*</span></label>
+                        <div className="nb-input-wrap">
+                          <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                          <input type="text" placeholder="Rruga, Lagjja, Nr." value={bizAddress} onChange={e => setBizAddress(e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="nb-terms-check">
                     <input type="checkbox" id="terms" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />
                     <label htmlFor="terms">
@@ -303,6 +370,12 @@ export default function RegisterPage() {
         .nb-spin { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.25); border-top-color: currentColor; border-radius: 50%; animation: spin 0.65s linear infinite; }
         .nb-spin-w { border-color: rgba(255,255,255,0.25); border-top-color: white; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .nb-biz-section{display:flex;flex-direction:column;gap:0.9rem;margin-top:0.5rem}
+        .nb-biz-divider{font-size:0.75rem;font-weight:700;color:#f97316;text-transform:uppercase;letter-spacing:0.06em;padding:0.5rem 0;border-top:1px solid rgba(249,115,22,0.2);margin-top:0.25rem}
+        .nb-field-row2{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem}
+        .nb-select{width:100%;padding:0.7rem 0.9rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:11px;color:#f4f4f5;font-size:0.875rem;outline:none;font-family:inherit;transition:border-color .2s}
+        .nb-select:focus{border-color:rgba(249,115,22,0.5);box-shadow:0 0 0 3px rgba(249,115,22,0.1)}
+        .nb-select option{background:#1c1c1c}
         .nb-verify-screen{text-align:center;padding:1rem 0}
         .nb-verify-icon{font-size:3rem;margin-bottom:1rem}
         .nb-verify-screen h2{font-size:1.3rem;font-weight:700;color:#fff;margin-bottom:0.75rem}
