@@ -135,128 +135,119 @@ export default function RegisterPage() {
             <Link href="/auth/login" className="nb-btn-primary" style={{marginTop:"1.25rem",display:"flex",alignItems:"center",justifyContent:"center",textDecoration:"none"}}>
               Shko te Hyrja →
             </Link>
+            <p className="nb-footer-cta">Ke llogari? <Link href="/auth/login">Hyr →</Link></p>
           </div>
         ) : (
-          <>
+          <div>
+            <div className="nb-header">
+              <h1>Krijo llogarinë</h1>
+              <p>Zgjidh llojin e llogarisë për të vazhduar</p>
+            </div>
 
-        <div className="nb-header">
-          <h1>Krijo llogarinë</h1>
-          <p>Zgjidh llojin e llogarisë për të vazhduar</p>
-        </div>
-
-        <div className="nb-role-grid">
-          <button
-            type="button"
-            onClick={() => { setRole("business"); setError(""); }}
-            className={`nb-role-card ${role === "business" ? "selected" : ""}`}
-          >
-            <span className="nb-role-icon">🏪</span>
-            <span className="nb-role-title">Biznes</span>
-            <span className="nb-role-desc">Listo produktet e dyqanit tënd</span>
-            {role === "business" && <span className="nb-role-check">✓</span>}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => { setRole("professional"); setError(""); }}
-            className={`nb-role-card ${role === "professional" ? "selected" : ""}`}
-          >
-            <span className="nb-role-icon">👷</span>
-            <span className="nb-role-title">Profesionist</span>
-            <span className="nb-role-desc">Ofro shërbimet e tua</span>
-            {role === "professional" && <span className="nb-role-check">✓</span>}
-          </button>
-        </div>
-
-        {role && (
-          <>
-            <button onClick={handleGoogle} disabled={googleLoading || loading} className="nb-google-btn" type="button">
-              {googleLoading ? <span className="nb-spin" /> : (
-                <svg width="18" height="18" viewBox="0 0 18 18">
-                  <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908C16.658 14.013 17.64 11.706 17.64 9.2z" fill="#4285F4"/>
-                  <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
-                  <path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
-                  <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
-                </svg>
-              )}
-              <span>{googleLoading ? "Duke u lidhur…" : `Regjistrohu si ${role === "business" ? "Biznes" : "Profesionist"} me Google`}</span>
-            </button>
-
-            <div className="nb-divider"><span>ose me email</span></div>
-
-            <form onSubmit={handleRegister} className="nb-form">
-              <div className="nb-field">
-                <label>Emri i plotë <span className="nb-req">*</span></label>
-                <div className="nb-input-wrap">
-                  <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.582-7 8-7s8 3 8 7"/></svg>
-                  <input type="text" autoComplete="name" required placeholder="Emri Mbiemri" value={name} onChange={(e) => setName(e.target.value)} />
-                </div>
-              </div>
-
-              <div className="nb-field">
-                <label>Email <span className="nb-req">*</span></label>
-                <div className="nb-input-wrap">
-                  <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
-                  <input type="email" autoComplete="email" required placeholder="emri@shembull.al" value={email} onChange={(e) => setEmail(e.target.value)} />
-                </div>
-              </div>
-
-              <div className="nb-field">
-                <label>Fjalëkalimi <span className="nb-req">*</span></label>
-                <div className="nb-input-wrap">
-                  <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  <input type={showPassword ? "text" : "password"} autoComplete="new-password" required placeholder="Min. 8 karaktere" value={password} onChange={(e) => setPassword(e.target.value)} />
-                  <button type="button" className="nb-eye" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
-                    {showPassword
-                      ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                      : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    }
-                  </button>
-                </div>
-                {password && (
-                  <div className="nb-strength">
-                    <div className="nb-bars">
-                      {[1,2,3,4].map(i => (
-                        <div key={i} className="nb-bar" style={{ background: i <= strength ? strengthColor : 'rgba(255,255,255,0.08)' }} />
-                      ))}
-                    </div>
-                    <span style={{ color: strengthColor, fontSize: '0.75rem', fontWeight: 600 }}>{strengthLabel}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="nb-field">
-                <label>Konfirmo fjalëkalimin <span className="nb-req">*</span></label>
-                <div className="nb-input-wrap">
-                  <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4"/><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  <input type={showPassword ? "text" : "password"} autoComplete="new-password" required placeholder="Përsërit fjalëkalimin" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                    style={{ borderColor: confirmPassword && confirmPassword !== password ? 'rgba(239,68,68,0.5)' : '' }} />
-                </div>
-              </div>
-
-              <div className="nb-terms-check">
-                <input type="checkbox" id="terms" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />
-                <label htmlFor="terms">
-                  Pranoj <Link href="/terms">Kushtet e Shërbimit</Link> dhe <Link href="/privacy">Politikën e Privatësisë</Link>
-                </label>
-              </div>
-
-              {error && (
-                <div className="nb-error">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  {error}
-                </div>
-              )}
-
-              <button type="submit" disabled={loading || googleLoading || !termsAccepted} className="nb-btn-primary">
-                {loading && <span className="nb-spin nb-spin-w" />}
-                {loading ? "Duke krijuar llogarinë…" : `Regjistrohu si ${role === "business" ? "Biznes" : "Profesionist"}`}
+            <div className="nb-role-grid">
+              <button type="button" onClick={() => { setRole("business"); setError(""); }} className={`nb-role-card ${role === "business" ? "selected" : ""}`}>
+                <span className="nb-role-icon">🏪</span>
+                <span className="nb-role-title">Biznes</span>
+                <span className="nb-role-desc">Listo produktet e dyqanit tënd</span>
+                {role === "business" && <span className="nb-role-check">✓</span>}
               </button>
-            </form>
-            <p className="nb-footer-cta">
-              Ke llogari? <Link href="/auth/login">Hyr →</Link>
-            </p>
-          </>
+              <button type="button" onClick={() => { setRole("professional"); setError(""); }} className={`nb-role-card ${role === "professional" ? "selected" : ""}`}>
+                <span className="nb-role-icon">👷</span>
+                <span className="nb-role-title">Profesionist</span>
+                <span className="nb-role-desc">Ofro shërbimet e tua</span>
+                {role === "professional" && <span className="nb-role-check">✓</span>}
+              </button>
+            </div>
+
+            {role && (
+              <div>
+                <button onClick={handleGoogle} disabled={googleLoading || loading} className="nb-google-btn" type="button">
+                  {googleLoading ? <span className="nb-spin" /> : (
+                    <svg width="18" height="18" viewBox="0 0 18 18">
+                      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908C16.658 14.013 17.64 11.706 17.64 9.2z" fill="#4285F4"/>
+                      <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+                      <path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+                      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+                    </svg>
+                  )}
+                  <span>{googleLoading ? "Duke u lidhur…" : `Regjistrohu si ${role === "business" ? "Biznes" : "Profesionist"} me Google`}</span>
+                </button>
+
+                <div className="nb-divider"><span>ose me email</span></div>
+
+                <form onSubmit={handleRegister} className="nb-form">
+                  <div className="nb-field">
+                    <label>Emri i plotë <span className="nb-req">*</span></label>
+                    <div className="nb-input-wrap">
+                      <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.582-7 8-7s8 3 8 7"/></svg>
+                      <input type="text" autoComplete="name" required placeholder="Emri Mbiemri" value={name} onChange={(e) => setName(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="nb-field">
+                    <label>Email <span className="nb-req">*</span></label>
+                    <div className="nb-input-wrap">
+                      <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
+                      <input type="email" autoComplete="email" required placeholder="emri@shembull.al" value={email} onChange={(e) => setEmail(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="nb-field">
+                    <label>Fjalëkalimi <span className="nb-req">*</span></label>
+                    <div className="nb-input-wrap">
+                      <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      <input type={showPassword ? "text" : "password"} autoComplete="new-password" required placeholder="Min. 8 karaktere" value={password} onChange={(e) => setPassword(e.target.value)} />
+                      <button type="button" className="nb-eye" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
+                        {showPassword
+                          ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                          : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        }
+                      </button>
+                    </div>
+                    {password && (
+                      <div className="nb-strength">
+                        <div className="nb-bars">
+                          {[1,2,3,4].map(i => (
+                            <div key={i} className="nb-bar" style={{ background: i <= strength ? strengthColor : 'rgba(255,255,255,0.08)' }} />
+                          ))}
+                        </div>
+                        <span style={{ color: strengthColor, fontSize: '0.75rem', fontWeight: 600 }}>{strengthLabel}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="nb-field">
+                    <label>Konfirmo fjalëkalimin <span className="nb-req">*</span></label>
+                    <div className="nb-input-wrap">
+                      <svg className="nb-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4"/><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      <input type={showPassword ? "text" : "password"} autoComplete="new-password" required placeholder="Përsërit fjalëkalimin" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={{ borderColor: confirmPassword && confirmPassword !== password ? 'rgba(239,68,68,0.5)' : '' }} />
+                    </div>
+                  </div>
+
+                  <div className="nb-terms-check">
+                    <input type="checkbox" id="terms" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />
+                    <label htmlFor="terms">
+                      Pranoj <Link href="/terms">Kushtet e Shërbimit</Link> dhe <Link href="/privacy">Politikën e Privatësisë</Link>
+                    </label>
+                  </div>
+
+                  {error && (
+                    <div className="nb-error">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      {error}
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={loading || googleLoading || !termsAccepted} className="nb-btn-primary">
+                    {loading && <span className="nb-spin nb-spin-w" />}
+                    {loading ? "Duke krijuar llogarinë…" : `Regjistrohu si ${role === "business" ? "Biznes" : "Profesionist"}`}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            <p className="nb-footer-cta">Ke llogari? <Link href="/auth/login">Hyr →</Link></p>
+          </div>
         )}
       </div>
 
