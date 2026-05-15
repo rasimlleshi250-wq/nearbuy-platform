@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc, getCountFromServer, where } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
-import { Business } from "@/types";
 import Link from "next/link";
 
 const PLAN_COLORS: Record<string, string> = {
@@ -13,15 +12,30 @@ const PLANS = ["free", "basic", "advanced", "pro"];
 const PAYMENT_METHODS = ["Cash", "Transfer Bankar", "Kartë", "Tjetër"];
 const CITIES = ["Tiranë","Durrës","Vlorë","Shkodër","Elbasan","Korçë","Fier","Berat","Lushnjë","Kavajë","Gjirokastër","Sarandë","Lezhë","Kukës","Pogradec","Peshkopi"];
 
-interface BizExtra extends Business {
-  requestedPlan?: string;
-  planStatus?: string;
+interface BizExtra {
+  id: string;
+  ownerUID: string;
+  name: string;
+  description?: string;
+  address?: string;
+  city: string;
+  phone?: string;
+  email?: string;
+  logo?: string;
+  coverImage?: string;
+  subscription: string;
   subscriptionStart?: string;
   subscriptionEnd?: string;
+  verified: boolean;
+  featured: boolean;
+  requestedPlan?: string;
+  planStatus?: string;
   blocked?: boolean;
   paymentMethod?: string;
   productCount?: number;
   registeredAt?: string;
+  category?: string;
+  categories?: string[];
 }
 
 export default function AdminBusinessesPage() {
