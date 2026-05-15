@@ -44,7 +44,7 @@ export default function ProfessionalDashboardPage() {
     </div>
   );
 
-  const isMonthly = professional?.subscription === "monthly";
+  const isMonthly = true; // Statistikat i shfaqim te gjithe profesionisteve per momentin
 
   return (
     <div className="pro-page">
@@ -53,7 +53,12 @@ export default function ProfessionalDashboardPage() {
           <h1>Overview</h1>
           <p>Mirë se erdhe, {professional?.name?.split(" ")[0] || "Profesionist"}! 👋</p>
         </div>
-        <Link href="/dashboard/professional/profile" className="pro-btn-edit">✏️ Edito profilin</Link>
+        <div className="pro-header-btns">
+          {professional?.verified && (
+            <Link href={`/professionals/${user?.uid}`} target="_blank" className="pro-btn-view">🔗 Shiko profilin</Link>
+          )}
+          <Link href="/dashboard/professional/profile" className="pro-btn-edit">✏️ Edito profilin</Link>
+        </div>
       </div>
 
       {professional && !professional.verified && (
@@ -106,9 +111,6 @@ export default function ProfessionalDashboardPage() {
           <div className="pro-card">
             <div className="pro-stats-header">
               <h3 className="pro-card-title">Statistikat</h3>
-              {!isMonthly && (
-                <span className="pro-upgrade-badge">🔒 Kërkon plan Monthly</span>
-              )}
             </div>
 
             {isMonthly && stats ? (
@@ -139,11 +141,6 @@ export default function ProfessionalDashboardPage() {
               </div>
             )}
 
-            {!isMonthly && (
-              <div className="pro-upgrade-cta">
-                <p>Kaloni në planin <strong>Monthly</strong> për të parë statistikat e profilit tuaj.</p>
-              </div>
-            )}
           </div>
         </>
       )}
@@ -153,6 +150,9 @@ export default function ProfessionalDashboardPage() {
         .pro-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
         .pro-page-header h1 { font-size: 1.4rem; font-weight: 700; color: #fff; letter-spacing: -0.025em; margin-bottom: 0.25rem; }
         .pro-page-header p { font-size: 0.85rem; color: #71717a; }
+        .pro-header-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+        .pro-btn-view { padding: 0.6rem 1.2rem; background: rgba(255,255,255,0.05); color: #a1a1aa; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 0.875rem; font-weight: 600; text-decoration: none; transition: all .2s; white-space: nowrap; }
+        .pro-btn-view:hover { background: rgba(255,255,255,0.08); color: #fff; }
         .pro-btn-edit { padding: 0.6rem 1.2rem; background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.25); border-radius: 10px; font-size: 0.875rem; font-weight: 600; text-decoration: none; transition: background .2s; white-space: nowrap; }
         .pro-btn-edit:hover { background: rgba(168,85,247,0.2); }
         .pro-alert { display: flex; gap: 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; padding: 1rem; }
