@@ -253,12 +253,11 @@ export default function RegisterPage() {
                 {loading ? "Duke krijuar llogarinë…" : `Regjistrohu si ${role === "business" ? "Biznes" : "Profesionist"}`}
               </button>
             </form>
+            <p className="nb-footer-cta">
+              Ke llogari? <Link href="/auth/login">Hyr →</Link>
+            </p>
           </>
         )}
-
-        <p className="nb-footer-cta">
-          Ke llogari? <Link href="/auth/login">Hyr →</Link>
-        </p>
       </div>
 
       <style>{`
