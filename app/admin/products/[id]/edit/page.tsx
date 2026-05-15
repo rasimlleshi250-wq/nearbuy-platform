@@ -232,6 +232,7 @@ export default function EditProductPage() {
                   <label>Marka</label>
                   <input type="text" value={form.brand} onChange={e => setForm(p => ({ ...p, brand: e.target.value }))} />
                 </div>
+              </div>
 
               <div className="adm-field-row">
                 <div className="adm-field">
