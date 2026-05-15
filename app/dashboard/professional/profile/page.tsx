@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { db, storage } from "@/lib/firebase/config";
+import { db } from "@/lib/firebase/config";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { Professional } from "@/types";
 
 const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec"];
@@ -65,9 +64,15 @@ export default function ProfessionalProfilePage() {
     try {
       let photoUrl = professional?.photo || "";
       if (photoFile) {
-        const r = ref(storage, `professionals/${user.uid}/photo_${Date.now()}`);
-        await uploadBytes(r, photoFile);
-        photoUrl = await getDownloadURL(r);
+        const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "dvqcrh4qf";
+        const formData = new FormData();
+        formData.append("file", photoFile);
+        formData.append("upload_preset", "nearbuy_products");
+        formData.append("folder", "nearbuy/professionals");
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.secure_url) photoUrl = data.secure_url;
+        else throw new Error("Cloudinary upload failed");
       }
       await updateDoc(doc(db, "professionals", user.uid), {
         name: form.name.trim(),
