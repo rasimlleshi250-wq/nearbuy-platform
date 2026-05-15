@@ -7,7 +7,7 @@ const today = () => new Date().toISOString().split("T")[0];
 // ── Track a view for business or professional ──
 export async function trackView(type: "businesses" | "professionals", id: string) {
   try {
-    const ref = doc(db, "analytics", type, id, "views", today());
+    const ref = doc(db, "analytics_" + type, id, "views", today());
     await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackView error:", e); }
 }
@@ -15,7 +15,7 @@ export async function trackView(type: "businesses" | "professionals", id: string
 // ── Track a contact click ──
 export async function trackContact(type: "businesses" | "professionals", id: string) {
   try {
-    const ref = doc(db, "analytics", type, id, "contacts", today());
+    const ref = doc(db, "analytics_" + type, id, "contacts", today());
     await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackContact error:", e); }
 }
@@ -23,7 +23,7 @@ export async function trackContact(type: "businesses" | "professionals", id: str
 // ── Track maps click (businesses only) ──
 export async function trackMapsClick(id: string) {
   try {
-    const ref = doc(db, "analytics", "businesses", id, "maps", today());
+    const ref = doc(db, "analytics_businesses", id, "maps", today());
     await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackMapsClick error:", e); }
 }
@@ -31,7 +31,7 @@ export async function trackMapsClick(id: string) {
 // ── Track product click (Pro plan) ──
 export async function trackProductClick(businessId: string, productId: string, productName: string) {
   try {
-    const ref = doc(db, "analytics", "businesses", businessId, "products", productId);
+    const ref = doc(db, "analytics_businesses", businessId, "products", productId);
     await setDoc(ref, { count: increment(1), name: productName, productId }, { merge: true });
   } catch (e) { console.error("trackProductClick error:", e); }
 }
@@ -39,8 +39,8 @@ export async function trackProductClick(businessId: string, productId: string, p
 // ── Get total stats (Basic) ──
 export async function getTotalStats(type: "businesses" | "professionals", id: string) {
   try {
-    const viewsSnap = await getDocs(collection(db, "analytics", type, id, "views"));
-    const contactsSnap = await getDocs(collection(db, "analytics", type, id, "contacts"));
+    const viewsSnap = await getDocs(collection(db, "analytics_" + type, id, "views"));
+    const contactsSnap = await getDocs(collection(db, "analytics_" + type, id, "contacts"));
     
     const totalViews = viewsSnap.docs.reduce((sum, d) => sum + (d.data().count || 0), 0);
     const totalContacts = contactsSnap.docs.reduce((sum, d) => sum + (d.data().count || 0), 0);
@@ -55,10 +55,10 @@ export async function getTotalStats(type: "businesses" | "professionals", id: st
 // ── Get last 30 days stats (Advanced+) ──
 export async function getLast30DaysStats(type: "businesses" | "professionals", id: string) {
   try {
-    const viewsSnap = await getDocs(query(collection(db, "analytics", type, id, "views"), orderBy("date", "desc"), limit(30)));
-    const contactsSnap = await getDocs(query(collection(db, "analytics", type, id, "contacts"), orderBy("date", "desc"), limit(30)));
+    const viewsSnap = await getDocs(query(collection(db, "analytics_" + type, id, "views"), orderBy("date", "desc"), limit(30)));
+    const contactsSnap = await getDocs(query(collection(db, "analytics_" + type, id, "contacts"), orderBy("date", "desc"), limit(30)));
     const mapsSnap = type === "businesses" 
-      ? await getDocs(query(collection(db, "analytics", type, id, "maps"), orderBy("date", "desc"), limit(30)))
+      ? await getDocs(query(collection(db, "analytics_" + type, id, "maps"), orderBy("date", "desc"), limit(30)))
       : null;
 
     const views = viewsSnap.docs.map(d => ({ date: d.data().date, count: d.data().count }));
@@ -79,7 +79,7 @@ export async function getLast30DaysStats(type: "businesses" | "professionals", i
 // ── Get top products (Pro) ──
 export async function getTopProducts(businessId: string, topN = 5) {
   try {
-    const snap = await getDocs(collection(db, "analytics", "businesses", businessId, "products"));
+    const snap = await getDocs(collection(db, "analytics_businesses", businessId, "products"));
     const products = snap.docs.map(d => ({ productId: d.id, name: d.data().name, count: d.data().count }));
     return products.sort((a, b) => b.count - a.count).slice(0, topN);
   } catch (e) {
@@ -96,8 +96,8 @@ export async function getMonthComparison(type: "businesses" | "professionals", i
     const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, "0")}`;
 
-    const viewsSnap = await getDocs(collection(db, "analytics", type, id, "views"));
-    const contactsSnap = await getDocs(collection(db, "analytics", type, id, "contacts"));
+    const viewsSnap = await getDocs(collection(db, "analytics_" + type, id, "views"));
+    const contactsSnap = await getDocs(collection(db, "analytics_" + type, id, "contacts"));
 
     const filterMonth = (docs: any[], month: string) =>
       docs.filter(d => d.data().date?.startsWith(month)).reduce((s, d) => s + d.data().count, 0);
