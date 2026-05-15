@@ -137,6 +137,7 @@ export default function RegisterPage() {
             </Link>
           </div>
         ) : (
+          <>
 
         <div className="nb-header">
           <h1>Krijo llogarinë</h1>
