@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
-import { getCategories } from "@/lib/firebase/firestore";
+import { getCategories, getSubcategories } from "@/lib/firebase/firestore";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { Category } from "@/types";
@@ -16,6 +16,8 @@ export default function EditProductPage() {
   const productId = params.id as string;
 
   const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<{id:string;name:string}[]>([]);
+  const [loadingSubs, setLoadingSubs] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -29,6 +31,7 @@ export default function EditProductPage() {
     name: "",
     description: "",
     category: "",
+    subcategory: "",
     brand: "",
     barcode: "",
     tags: "",
@@ -45,6 +48,7 @@ export default function EditProductPage() {
           name: d.name || "",
           description: d.description || "",
           category: d.category || "",
+          subcategory: d.subcategory || "",
           brand: d.brand || "",
           barcode: d.barcode || "",
           tags: d.tags?.join(", ") || "",
@@ -62,6 +66,14 @@ export default function EditProductPage() {
     };
     load();
   }, [productId, router]);
+
+  useEffect(() => {
+    if (!form.category) { setSubcategories([]); return; }
+    setLoadingSubs(true);
+    getSubcategories(form.category)
+      .then(setSubcategories)
+      .finally(() => setLoadingSubs(false));
+  }, [form.category]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -127,6 +139,7 @@ export default function EditProductPage() {
         name: form.name.trim(),
         description: form.description.trim(),
         category: form.category,
+        subcategory: form.subcategory,
         brand: form.brand.trim(),
         barcode: form.barcode.trim(),
         tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
@@ -193,16 +206,32 @@ export default function EditProductPage() {
               <div className="adm-field-row">
                 <div className="adm-field">
                   <label>Kategoria <span className="req">*</span></label>
-                  <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} required>
+                  <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value, subcategory: "" }))} required>
                     <option value="">Zgjidh kategorinë...</option>
                     {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
                 <div className="adm-field">
+                  <label>Nënkategoria {loadingSubs && <span className="adm-hint" style={{textTransform:"none"}}>duke ngarkuar...</span>}</label>
+                  <select value={form.subcategory}
+                    onChange={e => setForm(p => ({ ...p, subcategory: e.target.value }))}
+                    disabled={!form.category || loadingSubs}>
+                    <option value="">Zgjidh nënkategorinë...</option>
+                    {subcategories.map(s => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
+                  {form.category && !loadingSubs && subcategories.length === 0 && (
+                    <p className="adm-hint">Nuk ka nënkategori</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="adm-field-row">
+                <div className="adm-field">
                   <label>Marka</label>
                   <input type="text" value={form.brand} onChange={e => setForm(p => ({ ...p, brand: e.target.value }))} />
                 </div>
-              </div>
 
               <div className="adm-field-row">
                 <div className="adm-field">
