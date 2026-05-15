@@ -18,9 +18,6 @@ interface BizExtra extends Business {
   planStatus?: string;
   subscriptionStart?: string;
   subscriptionEnd?: string;
-  address?: string;
-  phone?: string;
-  description?: string;
   blocked?: boolean;
   paymentMethod?: string;
   productCount?: number;
