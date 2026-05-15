@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile } from "firebase/auth";
+import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile, sendEmailVerification } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -21,6 +21,8 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const passwordStrength = (p: string) => {
     if (!p) return 0;
@@ -70,13 +72,15 @@ export default function RegisterPage() {
     if (!role) { setError("Zgjidh llojin e llogarisë."); return; }
     if (password !== confirmPassword) { setError("Fjalëkalimet nuk përputhen."); return; }
     if (password.length < 8) { setError("Fjalëkalimi duhet të ketë të paktën 8 karaktere."); return; }
+    if (!termsAccepted) { setError("Duhet të pranosh Kushtet e Shërbimit dhe Politikën e Privatësisë."); return; }
     setError("");
     setLoading(true);
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
       await createProfile(cred.user.uid, email, name.trim(), role);
-      router.push(role === "business" ? "/dashboard/business/setup" : "/dashboard/professional/setup");
+      await sendEmailVerification(cred.user);
+      setEmailSent(true);
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
       if (code === "auth/email-already-in-use") setError("Ky email është i regjistruar tashmë.");
@@ -121,6 +125,18 @@ export default function RegisterPage() {
           </div>
           <span>NearBuy<em>.al</em></span>
         </Link>
+
+        {emailSent ? (
+          <div className="nb-verify-screen">
+            <div className="nb-verify-icon">✉️</div>
+            <h2>Kontrollo emailin tënd!</h2>
+            <p>Kemi dërguar një link verifikimi te <strong>{email}</strong>. Kliko linkun për të aktivizuar llogarinë.</p>
+            <div className="nb-verify-note">Nëse nuk e sheh emailin, kontrollo dosjen Spam.</div>
+            <Link href="/auth/login" className="nb-btn-primary" style={{marginTop:"1.25rem",display:"flex",alignItems:"center",justifyContent:"center",textDecoration:"none"}}>
+              Shko te Hyrja →
+            </Link>
+          </div>
+        ) : (
 
         <div className="nb-header">
           <h1>Krijo llogarinë</h1>
@@ -217,6 +233,13 @@ export default function RegisterPage() {
                 </div>
               </div>
 
+              <div className="nb-terms-check">
+                <input type="checkbox" id="terms" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />
+                <label htmlFor="terms">
+                  Pranoj <Link href="/terms">Kushtet e Shërbimit</Link> dhe <Link href="/privacy">Politikën e Privatësisë</Link>
+                </label>
+              </div>
+
               {error && (
                 <div className="nb-error">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -224,14 +247,10 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              <button type="submit" disabled={loading || googleLoading} className="nb-btn-primary">
+              <button type="submit" disabled={loading || googleLoading || !termsAccepted} className="nb-btn-primary">
                 {loading && <span className="nb-spin nb-spin-w" />}
                 {loading ? "Duke krijuar llogarinë…" : `Regjistrohu si ${role === "business" ? "Biznes" : "Profesionist"}`}
               </button>
-
-              <p className="nb-terms">
-                Duke u regjistruar, pranon <Link href="/terms">Kushtet e Shërbimit</Link> dhe <Link href="/privacy">Politikën e Privatësisë</Link>.
-              </p>
             </form>
           </>
         )}
@@ -293,6 +312,17 @@ export default function RegisterPage() {
         .nb-spin { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.25); border-top-color: currentColor; border-radius: 50%; animation: spin 0.65s linear infinite; }
         .nb-spin-w { border-color: rgba(255,255,255,0.25); border-top-color: white; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .nb-verify-screen{text-align:center;padding:1rem 0}
+        .nb-verify-icon{font-size:3rem;margin-bottom:1rem}
+        .nb-verify-screen h2{font-size:1.3rem;font-weight:700;color:#fff;margin-bottom:0.75rem}
+        .nb-verify-screen p{font-size:0.875rem;color:#a1a1aa;line-height:1.6;margin-bottom:0.5rem}
+        .nb-verify-screen strong{color:#f5f5f4}
+        .nb-verify-note{font-size:0.78rem;color:#52525b;margin-top:0.5rem}
+        .nb-terms-check{display:flex;align-items:flex-start;gap:10px;margin-top:0.25rem}
+        .nb-terms-check input[type="checkbox"]{width:16px;height:16px;margin-top:2px;accent-color:#f97316;flex-shrink:0;cursor:pointer}
+        .nb-terms-check label{font-size:0.78rem;color:#71717a;line-height:1.5;cursor:pointer}
+        .nb-terms-check label a{color:#a1a1aa;text-decoration:underline}
+        .nb-terms-check label a:hover{color:#f97316}
         .nb-footer-cta { text-align: center; margin-top: 1.5rem; font-size: 0.85rem; color: #52525b; }
         .nb-footer-cta a { color: #f97316; font-weight: 600; text-decoration: none; }
         .nb-footer-cta a:hover { text-decoration: underline; }
