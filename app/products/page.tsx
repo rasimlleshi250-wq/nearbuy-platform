@@ -5,11 +5,13 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, getDocs } from "firebase/firestore";
+import { getSubcategories } from "@/lib/firebase/firestore";
 
 interface Product {
   id: string;
   name: string;
   category: string;
+  subcategory?: string;
   images?: string[];
   brand?: string;
   description?: string;
@@ -25,6 +27,8 @@ function ProductsContent() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState(searchParams.get("category") || "Të gjitha");
+  const [subcatFilter, setSubcatFilter] = useState("Të gjitha");
+  const [subcategories, setSubcategories] = useState<{id:string;name:string}[]>([]);
 
   useEffect(() => {
     const load = async () => {
@@ -44,14 +48,22 @@ function ProductsContent() {
     if (cat) setCatFilter(cat);
   }, [searchParams]);
 
+  // Ngarko subkategoritë kur ndryshon kategoria
+  useEffect(() => {
+    setSubcatFilter("Të gjitha");
+    if (catFilter === "Të gjitha") { setSubcategories([]); return; }
+    getSubcategories(catFilter).then(setSubcategories);
+  }, [catFilter]);
+
   const filtered = products.filter(p => {
     const matchCat = catFilter === "Të gjitha" || p.category === catFilter;
+    const matchSubcat = subcatFilter === "Të gjitha" || p.subcategory === subcatFilter;
     const matchSearch = !search.trim() ||
       p.name?.toLowerCase().includes(search.toLowerCase()) ||
       p.brand?.toLowerCase().includes(search.toLowerCase()) ||
       p.category?.toLowerCase().includes(search.toLowerCase()) ||
       p.description?.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
+    return matchCat && matchSubcat && matchSearch;
   });
 
   return (
@@ -94,6 +106,22 @@ function ProductsContent() {
           ))}
         </div>
 
+        {/* Subcategory tabs — shfaqen vetem kur ka kategori aktive */}
+        {subcategories.length > 0 && (
+          <div className="pd-subcats">
+            <button onClick={() => setSubcatFilter("Të gjitha")}
+              className={`pd-subcat-btn ${subcatFilter === "Të gjitha" ? "active" : ""}`}>
+              Të gjitha
+            </button>
+            {subcategories.map(s => (
+              <button key={s.id} onClick={() => setSubcatFilter(s.name)}
+                className={`pd-subcat-btn ${subcatFilter === s.name ? "active" : ""}`}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         <p className="pd-count">{loading ? "Duke ngarkuar..." : `${filtered.length} produkte`}{catFilter !== "Të gjitha" ? ` në ${catFilter}` : ""}</p>
 
         {loading ? (
@@ -104,7 +132,7 @@ function ProductsContent() {
           <div className="pd-empty">
             <span>📦</span>
             <p>Nuk u gjetën produkte për këtë kërkim.</p>
-            <button onClick={() => { setSearch(""); setCatFilter("Të gjitha"); }} className="pd-reset">
+            <button onClick={() => { setSearch(""); setCatFilter("Të gjitha"); setSubcatFilter("Të gjitha"); }} className="pd-reset">
               Pastro filtrat
             </button>
           </div>
@@ -154,7 +182,11 @@ function ProductsContent() {
         .pd-search-input{width:100%;padding:0.7rem 0.9rem 0.7rem 2.25rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#f4f4f5;font-size:0.875rem;outline:none;font-family:inherit;transition:border-color .2s}
         .pd-search-input:focus{border-color:rgba(245,200,66,0.4)}
         .pd-search-input::placeholder{color:#3f3f46}
-        .pd-cats{display:flex;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap}
+        .pd-subcats{display:flex;gap:6px;margin-bottom:1.25rem;flex-wrap:wrap;padding:0.75rem;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(255,255,255,0.05)}
+        .pd-subcat-btn{padding:0.35rem 0.85rem;border-radius:999px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#52525b;font-size:0.75rem;font-weight:500;cursor:pointer;font-family:inherit;transition:all .2s}
+        .pd-subcat-btn:hover{background:rgba(255,255,255,0.04);color:#a1a1aa}
+        .pd-subcat-btn.active{background:rgba(249,115,22,0.1);border-color:rgba(249,115,22,0.25);color:#f97316}
+        .pd-cats{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
         .pd-cat-btn{padding:0.5rem 1rem;border-radius:999px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#71717a;font-size:0.82rem;font-weight:500;cursor:pointer;font-family:inherit;transition:all .2s}
         .pd-cat-btn:hover{background:rgba(255,255,255,0.05);color:#e4e4e7}
         .pd-cat-btn.active{background:rgba(245,200,66,0.12);border-color:rgba(245,200,66,0.3);color:#f5c842}
