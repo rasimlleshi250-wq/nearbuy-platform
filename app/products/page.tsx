@@ -111,7 +111,7 @@ function ProductsContent() {
         ) : (
           <div className="pd-grid">
             {filtered.map(p => (
-              <div key={p.id} className="pd-card">
+              <Link key={p.id} href={`/products/${p.id}`} className="pd-card">
                 <div className="pd-img">
                   {p.images?.[0] ? <img src={p.images[0]} alt={p.name} /> : <span>📦</span>}
                 </div>
@@ -125,11 +125,9 @@ function ProductsContent() {
                       {p.tags.slice(0, 3).map(t => <span key={t} className="pd-tag">{t}</span>)}
                     </div>
                   )}
-                  <Link href={`/search?q=${encodeURIComponent(p.name)}`} className="pd-find-btn">
-                    🏪 Gjej në dyqane
-                  </Link>
+                  <span className="pd-find-btn">🏪 Shiko detajet</span>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}
