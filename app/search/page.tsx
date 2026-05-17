@@ -31,7 +31,7 @@ interface Business {
 }
 
 const CITIES = ["Të gjitha", "Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Gjirokastër", "Sarandë"];
-const CATEGORIES = ["Të gjitha", "Hidraulikë", "Elektrik", "Ndërtim", "Bojëra"];
+const CATEGORIES = ["Të gjitha", "Hidraulikë", "Elektrik", "Ndërtim", "Bojëra & Kimikate", "Kopshtari"];
 
 function SearchContent() {
   const searchParams = useSearchParams();
@@ -53,17 +53,24 @@ function SearchContent() {
         const allBizs = bizSnap.docs.map(d => ({ id: d.id, ...d.data() } as Business));
         
         if (searchTerm.trim()) {
-          // Kërko te produktet fillimisht
-          const prodSnap = await getDocs(collection(db, "products"));
+          // Kërko te produktet me filter status
+          const prodQ = query(
+            collection(db, "products"),
+            where("status", "==", "active")
+          );
+          const prodSnap = await getDocs(prodQ);
+          const searchLower = searchTerm.toLowerCase();
           const matchingProducts = prodSnap.docs
             .filter(d => {
               const data = d.data();
-              return data.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                     data.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                     data.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                     data.description?.toLowerCase().includes(searchTerm.toLowerCase());
+              return data.name?.toLowerCase().includes(searchLower) ||
+                     data.category?.toLowerCase().includes(searchLower) ||
+                     data.subcategory?.toLowerCase().includes(searchLower) ||
+                     data.brand?.toLowerCase().includes(searchLower) ||
+                     data.tags?.some((t: string) => t.toLowerCase().includes(searchLower));
             })
-            .map(d => ({ id: d.id, ...d.data() }));
+            .map(d => ({ id: d.id, ...d.data() }))
+            .slice(0, 100); // Limit 100
 
           if (matchingProducts.length > 0) {
             // Gjej bizneset që kanë këto produkte
