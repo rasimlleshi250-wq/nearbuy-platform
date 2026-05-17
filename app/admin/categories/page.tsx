@@ -5,12 +5,21 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query 
 import { db } from "@/lib/firebase/config";
 import { Category } from "@/types";
 
-const ICONS = ["🛍", "📱", "💻", "🏠", "🚗", "👗", "🍔", "💊", "📚", "🔧", "⚡", "🌿", "🎮", "🎨", "🏋️", "🐾", "✈️", "💄", "🪑", "🔌"];
+const ICONS = ["🛍", "📱", "💻", "🏠", "🚗", "👗", "🍔", "💊", "📚", "🔧", "⚡", "🌿", "🎮", "🎨", "🏋️", "🐾", "✈️", "💄", "🪑", "🔌", "🏗️", "🪚", "🔩", "🌱", "⛏️"];
+
+const DEFAULT_CATEGORIES = [
+  { name: "Hidraulikë", icon: "🔧", order: 1 },
+  { name: "Elektrik", icon: "⚡", order: 2 },
+  { name: "Ndërtim", icon: "🏗️", order: 3 },
+  { name: "Bojëra & Kimikate", icon: "🎨", order: 4 },
+  { name: "Kopshtari", icon: "🌿", order: 5 },
+];
 
 export default function AdminCategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const [form, setForm] = useState({ name: "", icon: "🛍" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -23,6 +32,22 @@ export default function AdminCategoriesPage() {
   };
 
   useEffect(() => { fetchCategories(); }, []);
+
+  const seedCategories = async () => {
+    if (!confirm("Do të shtohen 5 kategoritë kryesore. Vazhdo?")) return;
+    setSeeding(true);
+    try {
+      for (const cat of DEFAULT_CATEGORIES) {
+        await addDoc(collection(db, "categories"), cat);
+      }
+      await fetchCategories();
+      alert("✓ Kategoritë u shtuan me sukses!");
+    } catch (e) {
+      alert("Gabim gjatë shtimit.");
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,9 +84,16 @@ export default function AdminCategoriesPage() {
             <h1>Kategoritë</h1>
             <p>{categories.length} kategori gjithsej</p>
           </div>
-          <button onClick={() => setShowForm(!showForm)} className="adm-btn-primary">
-            {showForm ? "Anulo" : "+ Shto kategori"}
-          </button>
+          <div style={{display:"flex",gap:8}}>
+            {categories.length === 0 && (
+              <button onClick={seedCategories} disabled={seeding} className="adm-btn-seed">
+                {seeding ? "Duke shtuar..." : "⚡ Shto 5 kategoritë"}
+              </button>
+            )}
+            <button onClick={() => setShowForm(!showForm)} className="adm-btn-primary">
+              {showForm ? "Anulo" : "+ Shto kategori"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -72,7 +104,7 @@ export default function AdminCategoriesPage() {
             <div className="adm-field-row">
               <div className="adm-field">
                 <label>Emri <span className="req">*</span></label>
-                <input type="text" placeholder="p.sh. Elektronikë"
+                <input type="text" placeholder="p.sh. Kopshtari"
                   value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
               </div>
               <div className="adm-field">
@@ -103,8 +135,8 @@ export default function AdminCategoriesPage() {
       ) : categories.length === 0 ? (
         <div className="adm-empty">
           <p>📁 Nuk ka kategori akoma.</p>
-          <button onClick={() => setShowForm(true)} className="adm-btn-primary" style={{ marginTop: "1rem" }}>
-            Shto kategorinë e parë
+          <button onClick={seedCategories} disabled={seeding} className="adm-btn-primary" style={{ marginTop: "1rem" }}>
+            {seeding ? "Duke shtuar..." : "⚡ Shto 5 kategoritë"}
           </button>
         </div>
       ) : (
@@ -130,6 +162,9 @@ export default function AdminCategoriesPage() {
         .adm-btn-primary{padding:0.6rem 1.2rem;background:#f97316;color:#fff;border:none;border-radius:10px;font-size:0.875rem;font-weight:600;cursor:pointer;text-decoration:none;transition:background .2s;white-space:nowrap;font-family:inherit}
         .adm-btn-primary:hover:not(:disabled){background:#ea6c0a}
         .adm-btn-primary:disabled{opacity:0.55;cursor:not-allowed}
+        .adm-btn-seed{padding:0.6rem 1.2rem;background:rgba(249,115,22,0.15);color:#f97316;border:1px solid rgba(249,115,22,0.3);border-radius:10px;font-size:0.875rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;white-space:nowrap}
+        .adm-btn-seed:hover:not(:disabled){background:rgba(249,115,22,0.25)}
+        .adm-btn-seed:disabled{opacity:0.55;cursor:not-allowed}
         .adm-card{background:#141414;border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:1.5rem}
         .adm-card-title{font-size:0.95rem;font-weight:700;color:#e4e4e7;margin-bottom:1.25rem}
         .adm-field{display:flex;flex-direction:column;gap:0.4rem;margin-bottom:1rem}
