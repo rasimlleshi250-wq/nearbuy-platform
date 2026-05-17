@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase/config";
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 
 const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
-const CATEGORIES = ["Hidraulikë", "Elektrik", "Ndërtim", "Bojëra"];
+const CATEGORIES = ["Hidraulikë", "Elektrik", "Ndërtim", "Bojëra & Kimikate", "Kopshtari"];
 
 export default function BusinessProfilePage() {
   const { user } = useAuth();
@@ -23,7 +23,10 @@ export default function BusinessProfilePage() {
     address: "",
     phone: "",
     description: "",
+    lat: 41.3275,
+    lng: 19.8187,
   });
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -40,6 +43,8 @@ export default function BusinessProfilePage() {
             address: d.address || "",
             phone: d.phone || "",
             description: d.description || "",
+            lat: d.lat || 41.3275,
+            lng: d.lng || 19.8187,
           });
         } else {
           const q = query(collection(db, "businesses"), where("ownerUID", "==", user.uid));
@@ -54,6 +59,8 @@ export default function BusinessProfilePage() {
               address: d.address || "",
               phone: d.phone || "",
               description: d.description || "",
+              lat: d.lat || 41.3275,
+              lng: d.lng || 19.8187,
             });
           }
         }
@@ -92,6 +99,8 @@ export default function BusinessProfilePage() {
         address: form.address.trim(),
         phone: form.phone.trim(),
         description: form.description.trim(),
+        lat: form.lat,
+        lng: form.lng,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -163,6 +172,45 @@ export default function BusinessProfilePage() {
           </div>
 
           <div className="pf-field">
+            <label>Lokacioni në hartë <span className="pf-opt">(klikoni për të vendosur pin)</span></label>
+            <div className="pf-map-wrap">
+              {typeof window !== "undefined" && (
+                <iframe
+                  key={`${form.lat}-${form.lng}`}
+                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${form.lng-0.02}%2C${form.lat-0.02}%2C${form.lng+0.02}%2C${form.lat+0.02}&layer=mapnik&marker=${form.lat}%2C${form.lng}`}
+                  style={{width:"100%",height:"220px",border:"none",borderRadius:"10px"}}
+                  title="Harta"
+                />
+              )}
+              <div className="pf-coords">
+                <div className="pf-coord-field">
+                  <label>Gjerësia (Lat)</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={form.lat}
+                    onChange={e => setForm(p => ({...p, lat: parseFloat(e.target.value) || 41.3275}))}
+                    placeholder="41.3275"
+                  />
+                </div>
+                <div className="pf-coord-field">
+                  <label>Gjatësia (Lng)</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={form.lng}
+                    onChange={e => setForm(p => ({...p, lng: parseFloat(e.target.value) || 19.8187}))}
+                    placeholder="19.8187"
+                  />
+                </div>
+              </div>
+              <p className="pf-map-hint">
+                💡 Shko te <a href="https://www.openstreetmap.org" target="_blank" rel="noreferrer">openstreetmap.org</a>, gjej dyqanin tënd, kliko me të djathtën → "Show address" dhe kopjo koordinatat.
+              </p>
+            </div>
+          </div>
+
+          <div className="pf-field">
             <label>Përshkrim <span className="pf-opt">(opsional)</span></label>
             <textarea rows={4} value={form.description} onChange={f("description")} placeholder="Çfarë ofron dyqani yt..." />
           </div>
@@ -177,6 +225,13 @@ export default function BusinessProfilePage() {
       </div>
 
       <style>{`
+        .pf-map-wrap { display: flex; flex-direction: column; gap: 8px; }
+        .pf-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .pf-coord-field { display: flex; flex-direction: column; gap: 4px; }
+        .pf-coord-field label { font-size: 0.72rem; color: #71717a; }
+        .pf-coord-field input { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #f4f4f5; font-size: 0.82rem; padding: 0.55rem 0.75rem; outline: none; font-family: inherit; }
+        .pf-map-hint { font-size: 0.75rem; color: #52525b; line-height: 1.5; }
+        .pf-map-hint a { color: #f97316; text-decoration: none; }
         .pf-cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .pf-cat-btn { padding: 0.6rem 0.9rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; color: #a1a1aa; font-size: 0.85rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; text-align: left; }
         .pf-cat-btn:hover { background: rgba(249,115,22,0.08); border-color: rgba(249,115,22,0.2); color: #f97316; }
