@@ -172,41 +172,48 @@ export default function BusinessProfilePage() {
           </div>
 
           <div className="pf-field">
-            <label>Lokacioni në hartë <span className="pf-opt">(klikoni për të vendosur pin)</span></label>
+            <label>Lokacioni në hartë <span className="pf-opt">(opsional)</span></label>
             <div className="pf-map-wrap">
-              {typeof window !== "undefined" && (
+              {form.lat !== 41.3275 && (
                 <iframe
                   key={`${form.lat}-${form.lng}`}
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${form.lng-0.02}%2C${form.lat-0.02}%2C${form.lng+0.02}%2C${form.lat+0.02}&layer=mapnik&marker=${form.lat}%2C${form.lng}`}
-                  style={{width:"100%",height:"220px",border:"none",borderRadius:"10px"}}
+                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${form.lng-0.005}%2C${form.lat-0.005}%2C${form.lng+0.005}%2C${form.lat+0.005}&layer=mapnik&marker=${form.lat}%2C${form.lng}`}
+                  style={{width:"100%",height:"200px",border:"none",borderRadius:"10px",marginBottom:"8px"}}
                   title="Harta"
                 />
               )}
-              <div className="pf-coords">
-                <div className="pf-coord-field">
-                  <label>Gjerësia (Lat)</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={form.lat}
-                    onChange={e => setForm(p => ({...p, lat: parseFloat(e.target.value) || 41.3275}))}
-                    placeholder="41.3275"
-                  />
-                </div>
-                <div className="pf-coord-field">
-                  <label>Gjatësia (Lng)</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={form.lng}
-                    onChange={e => setForm(p => ({...p, lng: parseFloat(e.target.value) || 19.8187}))}
-                    placeholder="19.8187"
-                  />
-                </div>
+              <button
+                type="button"
+                className="pf-gps-btn"
+                onClick={() => {
+                  if (!navigator.geolocation) return alert("GPS nuk suportohet nga ky browser.");
+                  navigator.geolocation.getCurrentPosition(
+                    pos => setForm(p => ({...p, lat: pos.coords.latitude, lng: pos.coords.longitude})),
+                    () => alert("Nuk u mor lokacioni. Lejo aksesin te GPS.")
+                  );
+                }}
+              >
+                📍 Përdor lokacionin tim tani
+              </button>
+              <div className="pf-url-wrap">
+                <input
+                  type="text"
+                  placeholder="Ose ngjit URL nga Google Maps / OpenStreetMap..."
+                  className="pf-url-input"
+                  onChange={e => {
+                    const val = e.target.value;
+                    // Google Maps: @41.3275,19.8187 ose ?q=41.3275,19.8187
+                    const m = val.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+                              val.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+                              val.match(/mlat=(-?\d+\.\d+)&mlon=(-?\d+\.\d+)/) ||
+                              val.match(/(-?\d{2,}\.\d+),(-?\d{2,}\.\d+)/);
+                    if (m) setForm(p => ({...p, lat: parseFloat(m[1]), lng: parseFloat(m[2])}));
+                  }}
+                />
               </div>
-              <p className="pf-map-hint">
-                💡 Shko te <a href="https://www.openstreetmap.org" target="_blank" rel="noreferrer">openstreetmap.org</a>, gjej dyqanin tënd, kliko me të djathtën → "Show address" dhe kopjo koordinatat.
-              </p>
+              {form.lat !== 41.3275 && (
+                <p className="pf-coords-show">✓ Koordinatat: {form.lat.toFixed(5)}, {form.lng.toFixed(5)}</p>
+              )}
             </div>
           </div>
 
@@ -226,12 +233,13 @@ export default function BusinessProfilePage() {
 
       <style>{`
         .pf-map-wrap { display: flex; flex-direction: column; gap: 8px; }
-        .pf-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .pf-coord-field { display: flex; flex-direction: column; gap: 4px; }
-        .pf-coord-field label { font-size: 0.72rem; color: #71717a; }
-        .pf-coord-field input { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #f4f4f5; font-size: 0.82rem; padding: 0.55rem 0.75rem; outline: none; font-family: inherit; }
-        .pf-map-hint { font-size: 0.75rem; color: #52525b; line-height: 1.5; }
-        .pf-map-hint a { color: #f97316; text-decoration: none; }
+        .pf-gps-btn { padding: 0.65rem 1rem; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.3); border-radius: 10px; color: #f97316; font-size: 0.875rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .2s; text-align: left; }
+        .pf-gps-btn:hover { background: rgba(249,115,22,0.18); }
+        .pf-url-wrap { display: flex; gap: 8px; }
+        .pf-url-input { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; color: #f4f4f5; font-size: 0.82rem; padding: 0.65rem 0.9rem; outline: none; font-family: inherit; transition: border-color .2s; }
+        .pf-url-input:focus { border-color: rgba(249,115,22,0.4); }
+        .pf-url-input::placeholder { color: #3f3f46; }
+        .pf-coords-show { font-size: 0.75rem; color: #22c55e; }
         .pf-cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .pf-cat-btn { padding: 0.6rem 0.9rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; color: #a1a1aa; font-size: 0.85rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; text-align: left; }
         .pf-cat-btn:hover { background: rgba(249,115,22,0.08); border-color: rgba(249,115,22,0.2); color: #f97316; }
