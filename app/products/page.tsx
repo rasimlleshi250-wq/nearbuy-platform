@@ -25,7 +25,7 @@ function ProductsContent() {
   const searchParams = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(searchParams.get("search") || "");
   const [catFilter, setCatFilter] = useState(searchParams.get("category") || "Të gjitha");
   const [subcatFilter, setSubcatFilter] = useState("Të gjitha");
   const [subcategories, setSubcategories] = useState<{id:string;name:string}[]>([]);
@@ -46,6 +46,8 @@ function ProductsContent() {
   useEffect(() => {
     const cat = searchParams.get("category");
     if (cat) setCatFilter(cat);
+    const s = searchParams.get("search");
+    if (s) setSearch(s);
   }, [searchParams]);
 
   // Ngarko subkategoritë kur ndryshon kategoria
