@@ -41,7 +41,8 @@ const CATEGORIES = [
   { name: "Hidraulikë", icon: "🔧" },
   { name: "Elektrik", icon: "⚡" },
   { name: "Ndërtim", icon: "🏗️" },
-  { name: "Bojëra", icon: "🎨" },
+  { name: "Bojëra & Kimikate", icon: "🎨" },
+  { name: "Kopshtari", icon: "🌿" },
 ];
 
 const HOW_IT_WORKS = [
@@ -82,11 +83,9 @@ export default function HomePage() {
 
     const loadProducts = async () => {
       try {
-        const snap = await getDocs(collection(db, "products"));
-        const all = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product))
-          .filter(p => !p.status || p.status === "active")
-          .slice(0, 8);
-        setProducts(all);
+        const q = query(collection(db, "products"), where("status", "==", "active"), limit(8));
+        const snap = await getDocs(q);
+        setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
       } catch (e) { console.error(e); }
       finally { setLoadingProd(false); }
     };
@@ -134,8 +133,14 @@ export default function HomePage() {
           </form>
 
           <div className="nb-tags">
-            {["Elektriçistë", "Hidraulikë", "Bojëra", "Ndërtim", "Elektrik"].map(tag => (
-              <button key={tag} onClick={() => router.push(`/search?q=${encodeURIComponent(tag)}`)} className="nb-tag">{tag}</button>
+            {[
+              { label: "🔧 Hidraulikë", q: "Hidraulikë" },
+              { label: "⚡ Elektrik", q: "Elektrik" },
+              { label: "🏗️ Ndërtim", q: "Ndërtim" },
+              { label: "🎨 Bojëra", q: "Bojëra & Kimikate" },
+              { label: "🌿 Kopshtari", q: "Kopshtari" },
+            ].map(tag => (
+              <button key={tag.q} onClick={() => router.push(`/products?category=${encodeURIComponent(tag.q)}`)} className="nb-tag">{tag.label}</button>
             ))}
           </div>
         </div>
