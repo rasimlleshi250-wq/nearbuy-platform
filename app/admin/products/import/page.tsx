@@ -9,6 +9,7 @@ import Link from "next/link";
 interface ParsedProduct {
   name: string;
   category: string;
+  subcategory: string;
   brand: string;
   description: string;
   tags: string;
@@ -18,7 +19,7 @@ interface ParsedProduct {
 }
 
 const REQUIRED_COLS = ["name", "category"];
-const ALL_COLS = ["name", "category", "brand", "description", "tags", "image_url", "status"];
+const ALL_COLS = ["name", "category", "subcategory", "brand", "description", "tags", "image_url", "status"];
 
 function downloadTemplate() {
   const header = "name,category,brand,description,tags,image_url,status";
@@ -63,6 +64,7 @@ function parseCSV(text: string): ParsedProduct[] {
     const p: ParsedProduct = {
       name: row.name || "",
       category: row.category || "",
+      subcategory: row.subcategory || "",
       brand: row.brand || "",
       description: row.description || "",
       tags: row.tags || "",
@@ -125,6 +127,7 @@ export default function ImportProductsPage() {
         await addDoc(collection(db, "products"), {
           name: p.name.trim(),
           category: p.category.trim(),
+          subcategory: p.subcategory.trim(),
           brand: p.brand.trim(),
           description: p.description.trim(),
           tags: p.tags ? p.tags.split(";").map(t => t.trim()).filter(Boolean) : [],
