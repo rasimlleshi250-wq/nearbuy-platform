@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, limit, orderBy } from "firebase/firestore";
 import { getSubcategories } from "@/lib/firebase/firestore";
 
 interface Product {
@@ -19,7 +19,8 @@ interface Product {
   status: string;
 }
 
-const CATEGORIES = ["Të gjitha", "Hidraulikë", "Elektrik", "Ndërtim", "Bojëra"];
+const CATEGORIES = ["Të gjitha", "Hidraulikë", "Elektrik", "Ndërtim", "Bojëra & Kimikate", "Kopshtari"];
+const PAGE_SIZE = 24;
 
 function ProductsContent() {
   const searchParams = useSearchParams();
@@ -30,17 +31,25 @@ function ProductsContent() {
   const [subcatFilter, setSubcatFilter] = useState("Të gjitha");
   const [subcategories, setSubcategories] = useState<{id:string;name:string}[]>([]);
 
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
       try {
-        const q = query(collection(db, "products"), where("status", "==", "active"));
+        const constraints: any[] = [where("status", "==", "active")];
+        if (catFilter !== "Të gjitha") constraints.push(where("category", "==", catFilter));
+        if (subcatFilter !== "Të gjitha") constraints.push(where("subcategory", "==", subcatFilter));
+        constraints.push(limit(500));
+        const q = query(collection(db, "products"), ...constraints);
         const snap = await getDocs(q);
         setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
+        setVisibleCount(PAGE_SIZE);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
     load();
-  }, []);
+  }, [catFilter, subcatFilter]);
 
   // Sync category from URL param
   useEffect(() => {
@@ -58,15 +67,14 @@ function ProductsContent() {
   }, [catFilter]);
 
   const filtered = products.filter(p => {
-    const matchCat = catFilter === "Të gjitha" || p.category === catFilter;
-    const matchSubcat = subcatFilter === "Të gjitha" || p.subcategory === subcatFilter;
-    const matchSearch = !search.trim() ||
-      p.name?.toLowerCase().includes(search.toLowerCase()) ||
-      p.brand?.toLowerCase().includes(search.toLowerCase()) ||
-      p.category?.toLowerCase().includes(search.toLowerCase()) ||
-      p.description?.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSubcat && matchSearch;
+    if (!search.trim()) return true;
+    const s = search.toLowerCase();
+    return p.name?.toLowerCase().includes(s) ||
+           p.brand?.toLowerCase().includes(s) ||
+           p.description?.toLowerCase().includes(s);
   });
+
+  const visible = filtered.slice(0, visibleCount);
 
   return (
     <div className="pd-root">
@@ -102,7 +110,7 @@ function ProductsContent() {
           {CATEGORIES.map(cat => (
             <button key={cat} onClick={() => setCatFilter(cat)}
               className={`pd-cat-btn ${catFilter === cat ? "active" : ""}`}>
-              {cat === "Hidraulikë" ? "🔧 " : cat === "Elektrik" ? "⚡ " : cat === "Ndërtim" ? "🏗️ " : cat === "Bojëra" ? "🎨 " : ""}
+              {cat === "Hidraulikë" ? "🔧 " : cat === "Elektrik" ? "⚡ " : cat === "Ndërtim" ? "🏗️ " : cat === "Bojëra & Kimikate" ? "🎨 " : cat === "Kopshtari" ? "🌿 " : ""}
               {cat}
             </button>
           ))}
@@ -139,11 +147,12 @@ function ProductsContent() {
             </button>
           </div>
         ) : (
+          <>
           <div className="pd-grid">
-            {filtered.map(p => (
+            {visible.map(p => (
               <Link key={p.id} href={`/products/${p.id}`} className="pd-card">
                 <div className="pd-img">
-                  {p.images?.[0] ? <img src={p.images[0]} alt={p.name} /> : <span>📦</span>}
+                  {p.images?.[0] ? <img src={p.images[0]} alt={p.name} loading="lazy" /> : <span>📦</span>}
                 </div>
                 <div className="pd-info">
                   <p className="pd-name">{p.name}</p>
@@ -160,6 +169,14 @@ function ProductsContent() {
               </Link>
             ))}
           </div>
+          {visibleCount < filtered.length && (
+            <div style={{textAlign:"center",marginTop:"1.5rem"}}>
+              <button onClick={() => setVisibleCount(v => v + PAGE_SIZE)} className="pd-load-more">
+                Shiko më shumë ({filtered.length - visibleCount} të tjera)
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
 
@@ -212,6 +229,8 @@ function ProductsContent() {
         .pd-tag{font-size:0.68rem;padding:2px 7px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:999px;color:#71717a}
         .pd-find-btn{display:block;text-align:center;padding:0.55rem;background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);border-radius:8px;color:#f5c842;font-size:0.78rem;font-weight:600;text-decoration:none;transition:background .2s;margin-top:auto}
         .pd-find-btn:hover{background:rgba(245,200,66,0.15)}
+        .pd-load-more{padding:0.75rem 2rem;background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);border-radius:10px;color:#f5c842;font-size:0.875rem;font-weight:600;cursor:pointer;font-family:inherit;transition:background .2s}
+        .pd-load-more:hover{background:rgba(245,200,66,0.15)}
         @media(max-width:600px){.pd-nav{padding:0 1rem}.pd-nav-link{display:none}}
       `}</style>
     </div>
