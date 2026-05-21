@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   collection,
   query,
@@ -23,7 +23,6 @@ import { getSubcategories } from "@/lib/firebase/firestore";
 import { Product } from "@/types";
 import Link from "next/link";
 
-// ---------------------------------------------------------------------------
 const CATEGORIES = ["Të gjitha", "Hidraulikë", "Elektrik", "Ndërtim", "Bojëra & Kimikate", "Kopshtari"];
 const CAT_ICONS: Record<string, string> = {
   "Hidraulikë": "🔧", "Elektrik": "⚡", "Ndërtim": "🏗️",
@@ -31,32 +30,104 @@ const CAT_ICONS: Record<string, string> = {
 };
 const PAGE_SIZE = 100;
 
-function buildConstraints(cat: string, subcat: string, search: string): QueryConstraint[] {
+// Ndërtojmë constraints duke i marrë vlerat SI PARAMETRA, jo nga closure
+function buildConstraints(
+  cat: string,
+  subcat: string,
+  search: string
+): QueryConstraint[] {
   const c: QueryConstraint[] = [];
-  if (cat !== "Të gjitha") c.push(where("category", "==", cat));
+  if (cat !== "Të gjitha")    c.push(where("category",    "==", cat));
   if (subcat !== "Të gjitha") c.push(where("subcategory", "==", subcat));
   if (search.trim()) {
-    const s = search.trim();
+    const s   = search.trim();
     const end = s.slice(0, -1) + String.fromCharCode(s.charCodeAt(s.length - 1) + 1);
     c.push(where("name", ">=", s), where("name", "<", end));
   }
   return c;
 }
-// ---------------------------------------------------------------------------
+
+// Funksion i jashtëm (jashtë komponentit) — nuk ka asnjë closure problem
+async function fetchProductPage(params: {
+  direction: "first" | "next" | "prev";
+  cat: string;
+  subcat: string;
+  search: string;
+  cursor: QueryDocumentSnapshot<DocumentData> | null;
+  currentPage: number;
+}): Promise<{
+  products: Product[];
+  firstDoc: QueryDocumentSnapshot<DocumentData> | null;
+  lastDoc:  QueryDocumentSnapshot<DocumentData> | null;
+  totalCount: number | null;
+  hasNext: boolean;
+  hasPrev: boolean;
+}> {
+  const { direction, cat, subcat, search, cursor, currentPage } = params;
+
+  const base      = buildConstraints(cat, subcat, search);
+  const withOrder = search.trim()
+    ? [...base, orderBy("name")]
+    : [...base, orderBy("createdAt", "desc")];
+
+  // Count — vetëm kur fillojmë nga e para
+  let totalCount: number | null = null;
+  if (direction === "first") {
+    try {
+      const cs = await getCountFromServer(query(collection(db, "products"), ...base));
+      totalCount = cs.data().count;
+    } catch { /* indeksi mungon — jo fatal */ }
+  }
+
+  // Page query
+  let pageC: QueryConstraint[];
+  if (direction === "next" && cursor)
+    pageC = [...withOrder, startAfter(cursor), limit(PAGE_SIZE)];
+  else if (direction === "prev" && cursor)
+    pageC = [...withOrder, endBefore(cursor), limitToLast(PAGE_SIZE)];
+  else
+    pageC = [...withOrder, limit(PAGE_SIZE)];
+
+  const snap = await getDocs(query(collection(db, "products"), ...pageC));
+  const docs = snap.docs;
+
+  // Peek — a ka faqe tjetër?
+  let hasNext = false;
+  if (docs.length === PAGE_SIZE) {
+    const pk = await getDocs(
+      query(collection(db, "products"), ...withOrder, startAfter(docs[docs.length - 1]), limit(1))
+    );
+    hasNext = pk.docs.length > 0;
+  }
+
+  const hasPrev =
+    direction === "next" ? true :
+    direction === "prev" ? currentPage > 2 :
+    false;
+
+  return {
+    products:  docs.map(d => ({ id: d.id, ...d.data() } as Product)),
+    firstDoc:  docs.length > 0 ? docs[0] : null,
+    lastDoc:   docs.length > 0 ? docs[docs.length - 1] : null,
+    totalCount,
+    hasNext,
+    hasPrev,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminProductsPage() {
-  const [products, setProducts]     = useState<Product[]>([]);
-  const [loading, setLoading]       = useState(true);
+  const [products, setProducts]       = useState<Product[]>([]);
+  const [loading, setLoading]         = useState(true);
   const [loadingPage, setLoadingPage] = useState(false);
 
-  // Filters
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch]           = useState("");
   const [cat, setCat]                 = useState("Të gjitha");
   const [subcat, setSubcat]           = useState("Të gjitha");
   const [subcats, setSubcats]         = useState<{ id: string; name: string }[]>([]);
 
-  // Pagination
   const [firstDoc, setFirstDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [lastDoc,  setLastDoc]  = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -66,105 +137,84 @@ export default function AdminProductsPage() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Fetch ────────────────────────────────────────────────────────────────
-  const fetchPage = useCallback(async (
+  // ── Loader i brendshëm (thjesht menaxhon state) ──────────────────────────
+  const runFetch = async (
     direction: "first" | "next" | "prev",
-    cursor?: QueryDocumentSnapshot<DocumentData> | null,
-    page?: number
+    catVal: string,
+    subcatVal: string,
+    searchVal: string,
+    cursor: QueryDocumentSnapshot<DocumentData> | null,
+    page: number
   ) => {
     direction === "first" ? setLoading(true) : setLoadingPage(true);
     try {
-      const base = buildConstraints(cat, subcat, search);
-      // orderBy: name when searching (required for range), createdAt otherwise
-      const withOrder: QueryConstraint[] = search.trim()
-        ? [...base, orderBy("name")]
-        : [...base, orderBy("createdAt", "desc")];
-
-      // Count on first load
-      if (direction === "first") {
-        try {
-          const cq = query(collection(db, "products"), ...base);
-          const cs = await getCountFromServer(cq);
-          setTotalCount(cs.data().count);
-        } catch { setTotalCount(null); }
-      }
-
-      // Page constraints
-      let pageC: QueryConstraint[];
-      if (direction === "next" && cursor)
-        pageC = [...withOrder, startAfter(cursor), limit(PAGE_SIZE)];
-      else if (direction === "prev" && cursor)
-        pageC = [...withOrder, endBefore(cursor), limitToLast(PAGE_SIZE)];
-      else
-        pageC = [...withOrder, limit(PAGE_SIZE)];
-
-      const snap = await getDocs(query(collection(db, "products"), ...pageC));
-      const docs = snap.docs;
-      setProducts(docs.map(d => ({ id: d.id, ...d.data() } as Product)));
-
-      if (docs.length > 0) { setFirstDoc(docs[0]); setLastDoc(docs[docs.length - 1]); }
-
-      // Prev availability
-      const pg = page ?? currentPage;
-      setHasPrev(direction === "next" ? true : direction === "prev" ? pg > 2 : false);
-
-      // Next availability — peek 1 doc ahead
-      if (docs.length === PAGE_SIZE) {
-        const pk = await getDocs(query(collection(db, "products"), ...withOrder, startAfter(docs[docs.length - 1]), limit(1)));
-        setHasNext(pk.docs.length > 0);
-      } else { setHasNext(false); }
+      const res = await fetchProductPage({
+        direction, cat: catVal, subcat: subcatVal,
+        search: searchVal, cursor, currentPage: page,
+      });
+      setProducts(res.products);
+      setFirstDoc(res.firstDoc);
+      setLastDoc(res.lastDoc);
+      setHasNext(res.hasNext);
+      setHasPrev(res.hasPrev);
+      if (res.totalCount !== null) setTotalCount(res.totalCount);
     } catch (e) { console.error(e); }
     finally { setLoading(false); setLoadingPage(false); }
-  }, [cat, subcat, search, currentPage]);
+  };
 
-  // Reset on filter change
+  // ── Kur ndryshojnë filtrat → reset + faqe e parë ─────────────────────────
   useEffect(() => {
-    setCurrentPage(1); setFirstDoc(null); setLastDoc(null); setHasPrev(false);
-    fetchPage("first");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setCurrentPage(1);
+    setFirstDoc(null);
+    setLastDoc(null);
+    setHasPrev(false);
+    setTotalCount(null);
+    runFetch("first", cat, subcat, search, null, 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cat, subcat, search]);
 
-  // Subcategories
+  // ── Subkategoritë ─────────────────────────────────────────────────────────
   useEffect(() => {
     setSubcat("Të gjitha");
     if (cat === "Të gjitha") { setSubcats([]); return; }
     getSubcategories(cat).then(setSubcats);
   }, [cat]);
 
-  // Debounce search
+  // ── Debounce search ───────────────────────────────────────────────────────
   const handleSearch = (val: string) => {
     setSearchInput(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setSearch(val), 400);
   };
 
-  // Toggle status
+  // ── Toggle status ─────────────────────────────────────────────────────────
   const toggleStatus = async (id: string, current: string) => {
     const next = current === "active" ? "inactive" : "active";
     await updateDoc(doc(db, "products", id), { status: next });
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, status: next as "active" | "inactive" } : p));
+    setProducts(prev =>
+      prev.map(p => p.id === id ? { ...p, status: next as "active" | "inactive" } : p)
+    );
   };
 
-  // Pagination handlers
+  // ── Pagination ────────────────────────────────────────────────────────────
   const goNext = () => {
     const pg = currentPage + 1;
     setCurrentPage(pg);
-    fetchPage("next", lastDoc, pg);
+    runFetch("next", cat, subcat, search, lastDoc, pg);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const goPrev = () => {
     const pg = Math.max(1, currentPage - 1);
     setCurrentPage(pg);
-    fetchPage("prev", firstDoc, pg);
+    runFetch("prev", cat, subcat, search, firstDoc, pg);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const totalPages = totalCount !== null ? Math.ceil(totalCount / PAGE_SIZE) : null;
-  const showing = products.length;
   const from = (currentPage - 1) * PAGE_SIZE + 1;
-  const to   = (currentPage - 1) * PAGE_SIZE + showing;
+  const to   = (currentPage - 1) * PAGE_SIZE + products.length;
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
       {/* Header */}
@@ -190,21 +240,23 @@ export default function AdminProductsPage() {
         <span className="adm-search-icon">🔍</span>
         <input
           type="text"
-          placeholder="Kërko produkte... (prefix)"
+          placeholder="Kërko produkte..."
           value={searchInput}
           onChange={e => handleSearch(e.target.value)}
           className="adm-search-input"
         />
         {searchInput && (
-          <button className="adm-search-clear" onClick={() => { setSearchInput(""); setSearch(""); }}>✕</button>
+          <button className="adm-search-clear"
+            onClick={() => { setSearchInput(""); setSearch(""); }}>✕</button>
         )}
       </div>
 
       {/* Category tabs */}
       <div className="adm-cats">
         {CATEGORIES.map(c => (
-          <button key={c} onClick={() => setCat(c)} className={`adm-cat-btn ${cat === c ? "active" : ""}`}>
-            {CAT_ICONS[c] && <span>{CAT_ICONS[c]} </span>}{c}
+          <button key={c} onClick={() => setCat(c)}
+            className={`adm-cat-btn ${cat === c ? "active" : ""}`}>
+            {CAT_ICONS[c] ? `${CAT_ICONS[c]} ` : ""}{c}
           </button>
         ))}
       </div>
@@ -212,11 +264,13 @@ export default function AdminProductsPage() {
       {/* Subcategory tabs */}
       {subcats.length > 0 && (
         <div className="adm-subcats">
-          <button onClick={() => setSubcat("Të gjitha")} className={`adm-subcat-btn ${subcat === "Të gjitha" ? "active" : ""}`}>
+          <button onClick={() => setSubcat("Të gjitha")}
+            className={`adm-subcat-btn ${subcat === "Të gjitha" ? "active" : ""}`}>
             Të gjitha
           </button>
           {subcats.map(s => (
-            <button key={s.id} onClick={() => setSubcat(s.name)} className={`adm-subcat-btn ${subcat === s.name ? "active" : ""}`}>
+            <button key={s.id} onClick={() => setSubcat(s.name)}
+              className={`adm-subcat-btn ${subcat === s.name ? "active" : ""}`}>
               {s.name}
             </button>
           ))}
@@ -230,6 +284,7 @@ export default function AdminProductsPage() {
             Duke shfaqur {from}–{to}
             {totalCount !== null ? ` nga ${totalCount.toLocaleString()}` : ""}
             {cat !== "Të gjitha" ? ` · ${cat}` : ""}
+            {subcat !== "Të gjitha" ? ` › ${subcat}` : ""}
           </span>
           <span className="adm-meta-text">
             Faqja {currentPage}{totalPages ? ` / ${totalPages}` : ""}
@@ -243,14 +298,19 @@ export default function AdminProductsPage() {
       ) : products.length === 0 ? (
         <div className="adm-empty">
           <p>😕 Nuk u gjet asnjë produkt</p>
-          <button className="adm-btn-secondary" style={{ marginTop: "1rem", cursor: "pointer" }}
-            onClick={() => { setSearchInput(""); setSearch(""); setCat("Të gjitha"); setSubcat("Të gjitha"); }}>
+          <button className="adm-btn-secondary"
+            style={{ marginTop: "1rem", cursor: "pointer" }}
+            onClick={() => {
+              setSearchInput(""); setSearch("");
+              setCat("Të gjitha"); setSubcat("Të gjitha");
+            }}>
             Pastro filtrat
           </button>
         </div>
       ) : (
         <>
-          <div className="adm-table-wrap" style={{ opacity: loadingPage ? 0.5 : 1, transition: "opacity .2s" }}>
+          <div className="adm-table-wrap"
+            style={{ opacity: loadingPage ? 0.5 : 1, transition: "opacity .2s" }}>
             <table className="adm-table">
               <thead>
                 <tr>
@@ -271,26 +331,32 @@ export default function AdminProductsPage() {
                           : <div className="adm-product-img adm-product-placeholder">🛍</div>}
                         <div>
                           <p className="adm-product-name">{p.name}</p>
-                          <p className="adm-product-desc">{p.description?.slice(0, 50)}{p.description && p.description.length > 50 ? "..." : ""}</p>
+                          <p className="adm-product-desc">
+                            {p.description?.slice(0, 50)}
+                            {p.description && p.description.length > 50 ? "..." : ""}
+                          </p>
                         </div>
                       </div>
                     </td>
                     <td>
                       <span className="adm-badge">{p.category}</span>
-                      {p.subcategory && <span className="adm-badge adm-badge-sub">{p.subcategory}</span>}
+                      {p.subcategory && (
+                        <span className="adm-badge adm-badge-sub">{p.subcategory}</span>
+                      )}
                     </td>
                     <td><span className="adm-text-muted">{p.brand || "—"}</span></td>
                     <td>
                       <button
                         onClick={() => toggleStatus(p.id, p.status)}
-                        className={`adm-status-btn ${p.status === "active" ? "active" : "inactive"}`}
-                      >
+                        className={`adm-status-btn ${p.status === "active" ? "active" : "inactive"}`}>
                         {p.status === "active" ? "● Aktiv" : "○ Joaktiv"}
                       </button>
                     </td>
                     <td>
                       <div className="adm-actions-cell">
-                        <Link href={`/admin/products/${p.id}/edit`} className="adm-action-link">Edito</Link>
+                        <Link href={`/admin/products/${p.id}/edit`} className="adm-action-link">
+                          Edito
+                        </Link>
                       </div>
                     </td>
                   </tr>
@@ -325,32 +391,22 @@ export default function AdminProductsPage() {
         .adm-btn-primary:hover{background:#ea6c0a}
         .adm-btn-secondary{padding:0.6rem 1.2rem;background:transparent;border:1px solid rgba(255,255,255,0.1);color:#a1a1aa;border-radius:10px;font-size:0.875rem;font-weight:500;cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;font-family:inherit}
         .adm-btn-secondary:hover{border-color:rgba(255,255,255,0.2);color:#e4e4e7}
-
-        /* Search */
-        .adm-search-bar{display:flex;align-items:center;gap:10px;background:#141414;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0 14px;margin-bottom:1rem;position:relative}
+        .adm-search-bar{display:flex;align-items:center;gap:10px;background:#141414;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0 14px;margin-bottom:1rem}
         .adm-search-icon{color:#52525b;font-size:0.9rem}
         .adm-search-input{flex:1;background:none;border:none;outline:none;padding:0.7rem 0;color:#f4f4f5;font-size:0.875rem;font-family:inherit}
         .adm-search-input::placeholder{color:#3f3f46}
         .adm-search-clear{background:none;border:none;color:#52525b;cursor:pointer;font-size:0.85rem;padding:4px 8px;margin-left:auto}
         .adm-search-clear:hover{color:#a1a1aa}
-
-        /* Category tabs */
         .adm-cats{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.75rem}
         .adm-cat-btn{padding:0.4rem 0.9rem;border-radius:999px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#71717a;font-size:0.8rem;font-weight:500;cursor:pointer;font-family:inherit;transition:all .2s}
         .adm-cat-btn:hover{background:rgba(255,255,255,0.04);color:#e4e4e7}
         .adm-cat-btn.active{background:rgba(249,115,22,0.12);border-color:rgba(249,115,22,0.3);color:#f97316}
-
-        /* Subcategory tabs */
         .adm-subcats{display:flex;gap:5px;flex-wrap:wrap;padding:0.6rem 0.75rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;margin-bottom:0.75rem}
         .adm-subcat-btn{padding:0.3rem 0.75rem;border-radius:999px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#52525b;font-size:0.73rem;font-weight:500;cursor:pointer;font-family:inherit;transition:all .2s}
         .adm-subcat-btn:hover{background:rgba(255,255,255,0.04);color:#a1a1aa}
         .adm-subcat-btn.active{background:rgba(249,115,22,0.1);border-color:rgba(249,115,22,0.25);color:#f97316}
-
-        /* Meta */
         .adm-meta-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem}
         .adm-meta-text{font-size:0.75rem;color:#52525b}
-
-        /* Table */
         .adm-loading,.adm-empty{text-align:center;padding:3rem;color:#71717a;font-size:0.9rem}
         .adm-table-wrap{background:#141414;border:1px solid rgba(255,255,255,0.07);border-radius:14px;overflow:hidden}
         .adm-table{width:100%;border-collapse:collapse}
@@ -372,8 +428,6 @@ export default function AdminProductsPage() {
         .adm-actions-cell{display:flex;gap:8px}
         .adm-action-link{font-size:0.8rem;color:#f97316;text-decoration:none;font-weight:500}
         .adm-action-link:hover{text-decoration:underline}
-
-        /* Pagination */
         .adm-pagination{display:flex;align-items:center;justify-content:center;gap:1.5rem;margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid rgba(255,255,255,0.06)}
         .adm-page-btn{padding:0.55rem 1.4rem;background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.2);border-radius:10px;color:#f97316;font-size:0.875rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
         .adm-page-btn:hover:not(:disabled){background:rgba(249,115,22,0.15)}
