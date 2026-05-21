@@ -66,9 +66,9 @@ async function fetchProductPage(params: {
   const { direction, cat, subcat, search, cursor, currentPage } = params;
 
   const base      = buildConstraints(cat, subcat, search);
-  const withOrder = search.trim()
-    ? [...base, orderBy("name")]
-    : [...base, orderBy("createdAt", "desc")];
+  // orderBy("name") gjithmonë — shmangim indeksin composite category+createdAt
+  // Firestore kërkon orderBy të njëjtë me fushën e inequality filter (name search)
+  const withOrder = [...base, orderBy("name")];
 
   // Count — vetëm kur fillojmë nga e para
   let totalCount: number | null = null;
