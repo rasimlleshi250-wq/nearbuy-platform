@@ -170,7 +170,7 @@ export default function ComingSoonPage() {
           {/* Benefits */}
           <div className="cs-benefits">
             {[
-              { icon: "🎯", text: "Profil biznesi falas — gjithmonë" },
+              { icon: "🎯", text: "30 bizneset e para: 2 muaj Standard falas" },
               { icon: "📍", text: "Klientë lokalë nga zona jote" },
               { icon: "⚡", text: "Online në 5 minuta" },
               { icon: "🏆", text: "Bizneset e para marrin pozicion premium" },
@@ -198,7 +198,7 @@ export default function ComingSoonPage() {
             <>
               <div className="cs-form-header">
                 <h2 className="cs-form-title">Regjistro biznesin tënd</h2>
-                <p className="cs-form-sub">Falas — gjithmonë. Hap pozicionin tënd para lansimit.</p>
+                <p className="cs-form-sub">30 bizneset e para marrin 2 muaj Standard falas. Rezervo vendin tënd.</p>
               </div>
 
               <div className="cs-form">
@@ -271,12 +271,12 @@ export default function ComingSoonPage() {
                   {loading ? (
                     <span className="cs-btn-spinner" />
                   ) : (
-                    <>Regjistro biznesin tim — Falas <span className="cs-arrow">→</span></>
+                    <>Rezervo vendin tënd — 2 muaj falas <span className="cs-arrow">→</span></>
                   )}
                 </button>
 
                 <p className="cs-privacy">
-                  Pa spam. Pa kosto. Do të kontaktohesh personalisht para lansimit.
+                  Vetëm 30 vende · Pa kontratë · Planet nga 1,500 ALL/muaj pas 2 muajve
                 </p>
               </div>
             </>
