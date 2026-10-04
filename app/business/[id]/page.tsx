@@ -6,6 +6,7 @@ import Link from "next/link";
 import { db } from "@/lib/firebase/config";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { trackView, trackContact, trackMapsClick } from "@/lib/firebase/analytics";
+import { DAYS, DayHours, isValidHours, openStatus, whatsappLink } from "@/lib/businessInfo";
 
 interface Business {
   id: string;
@@ -23,6 +24,15 @@ interface Business {
   verified: boolean;
   featured: boolean;
   location?: { latitude: number; longitude: number };
+  lat?: number | null;
+  lng?: number | null;
+  whatsapp?: string;
+  hours?: DayHours[];
+  delivery?: boolean;
+  deliveryNote?: string;
+  payments?: string[];
+  facebook?: string;
+  instagram?: string;
 }
 
 interface Product {
@@ -127,8 +137,17 @@ export default function BusinessPublicPage() {
   const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
   const pc = planColor[business.subscription] || "#71717a";
   const hasOffers = products.some(p => p.offerPrice);
-  const mapsUrl = business.location
-    ? `https://www.google.com/maps?q=${business.location.latitude},${business.location.longitude}`
+  // Koordinatat: nga profili (lat/lng) ose nga fusha e vjetër "location"
+  const lat = typeof business.lat === "number" ? business.lat : business.location?.latitude;
+  const lng = typeof business.lng === "number" ? business.lng : business.location?.longitude;
+  const hasCoords = typeof lat === "number" && typeof lng === "number";
+  const status = openStatus(business.hours);
+  const waUrl = whatsappLink(business.whatsapp || business.phone,
+    `Përshëndetje ${business.name}, ju gjeta në NearBuy.al dhe kam një pyetje.`);
+  const fbUrl = business.facebook ? (business.facebook.startsWith("http") ? business.facebook : `https://${business.facebook.replace(/^\/+/, "")}`) : null;
+  const igUrl = business.instagram ? (business.instagram.startsWith("http") ? business.instagram : `https://instagram.com/${business.instagram.replace(/^@/, "")}`) : null;
+  const mapsUrl = hasCoords
+    ? `https://www.google.com/maps?q=${lat},${lng}`
     : `https://www.google.com/maps/search/${encodeURIComponent(business.name + " " + business.city)}`;
 
   return (
@@ -168,6 +187,7 @@ export default function BusinessPublicPage() {
                 ))}
                 <span className="biz-pub-city">📍 {business.city}</span>
               </div>
+              {status && <p className={`biz-pub-open ${status.open ? "open" : "closed"}`}>● {status.label}</p>}
               {business.address && <p className="biz-pub-addr">🗺 {business.address}</p>}
             </div>
           </div>
@@ -176,6 +196,12 @@ export default function BusinessPublicPage() {
               <a href={`tel:${business.phone}`} className="biz-pub-call"
                 onClick={() => trackContact("businesses", bizId)}>
                 📞 {business.phone}
+              </a>
+            )}
+            {waUrl && (
+              <a href={waUrl} target="_blank" rel="noopener noreferrer" className="biz-pub-wa"
+                onClick={() => trackContact("businesses", bizId)}>
+                💬 WhatsApp
               </a>
             )}
             <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
@@ -194,7 +220,19 @@ export default function BusinessPublicPage() {
               <p className="biz-pub-desc">{business.description}</p>
             </div>
           )}
-          {business.schedule && (
+          {isValidHours(business.hours) ? (
+            <div className="biz-pub-card">
+              <h2 className="biz-pub-card-title">🕐 Orari i punës</h2>
+              <div className="biz-pub-schedule">
+                {business.hours.map((d, i) => (
+                  <div key={i} className="biz-pub-schedule-row">
+                    <span className="biz-pub-day">{DAYS[i]}</span>
+                    <span className="biz-pub-hours">{d.closed ? "Mbyllur" : `${d.open} – ${d.close}`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : business.schedule && (
             <div className="biz-pub-card">
               <h2 className="biz-pub-card-title">🕐 Orari i punës</h2>
               <div className="biz-pub-schedule">
@@ -211,6 +249,19 @@ export default function BusinessPublicPage() {
             </div>
           )}
         </div>
+
+        {(business.delivery || (business.payments && business.payments.length > 0) || fbUrl || igUrl) && (
+          <div className="biz-pub-card biz-pub-services">
+            {business.delivery && <p>🚚 <b>Transport / dërgesë</b>{business.deliveryNote ? ` — ${business.deliveryNote}` : ""}</p>}
+            {business.payments && business.payments.length > 0 && <p>💳 Pagesa: {business.payments.join(" · ")}</p>}
+            {(fbUrl || igUrl) && (
+              <p className="biz-pub-social">
+                {fbUrl && <a href={fbUrl} target="_blank" rel="noopener noreferrer">Facebook</a>}
+                {igUrl && <a href={igUrl} target="_blank" rel="noopener noreferrer">Instagram</a>}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Oferta aktive */}
         {hasOffers && (
@@ -273,25 +324,22 @@ export default function BusinessPublicPage() {
         )}
 
         {/* Harta */}
-        {business.location && (
+        {hasCoords && (
           <>
             <h2 className="biz-pub-section-title">📍 Lokacioni</h2>
-            <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
-              className="biz-pub-map-card"
-              onClick={() => trackMapsClick(bizId)}>
-              <div className="biz-pub-map-preview">
-                <img
-                  src={`https://maps.googleapis.com/maps/api/staticmap?center=${business.location.latitude},${business.location.longitude}&zoom=15&size=800x200&markers=color:red%7C${business.location.latitude},${business.location.longitude}&key=AIzaSyA0nJG2i_fNhef5C1dZu7_Bkj1CpMoFzmQ`}
-                  alt="Harta"
-                  className="biz-pub-map-img"
-                  onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                />
-                <div className="biz-pub-map-overlay">
-                  <span>🗺 Hap në Google Maps →</span>
-                </div>
+            <div className="biz-pub-map-card">
+              <iframe
+                title="Harta"
+                className="biz-pub-map-frame"
+                loading="lazy"
+                src={`https://www.openstreetmap.org/export/embed.html?bbox=${(lng as number) - 0.004}%2C${(lat as number) - 0.003}%2C${(lng as number) + 0.004}%2C${(lat as number) + 0.003}&layer=mapnik&marker=${lat}%2C${lng}`}
+              />
+              <div className="biz-pub-map-bottom">
+                <p className="biz-pub-map-addr">{business.address}, {business.city}</p>
+                <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="biz-pub-maps"
+                  onClick={() => trackMapsClick(bizId)}>🧭 Merr udhëzimet</a>
               </div>
-              <p className="biz-pub-map-addr">{business.address}, {business.city}</p>
-            </a>
+            </div>
           </>
         )}
 
@@ -326,6 +374,17 @@ export default function BusinessPublicPage() {
         .biz-pub-actions{display:flex;flex-direction:column;gap:8px;flex-shrink:0}
         .biz-pub-call{display:block;padding:0.65rem 1.25rem;background:#f97316;color:#fff;font-size:0.875rem;font-weight:700;border-radius:10px;text-decoration:none;text-align:center;transition:background .2s}
         .biz-pub-call:hover{background:#ea6c0a}
+        .biz-pub-wa{display:block;padding:0.65rem 1.25rem;background:#16a34a;color:#fff;font-size:0.875rem;font-weight:700;border-radius:10px;text-decoration:none;text-align:center}
+        .biz-pub-wa:hover{background:#15803d}
+        .biz-pub-open{font-size:0.8rem;font-weight:600;margin-top:6px}
+        .biz-pub-open.open{color:#22c55e}
+        .biz-pub-open.closed{color:#f87171}
+        .biz-pub-services{display:flex;flex-direction:column;gap:8px;font-size:0.85rem;color:#d4d4d8;margin-top:12px}
+        .biz-pub-services b{color:#f4f4f5}
+        .biz-pub-social{display:flex;gap:12px}
+        .biz-pub-social a{color:#f5c842;text-decoration:none;font-weight:600}
+        .biz-pub-map-frame{width:100%;height:220px;border:none;display:block}
+        .biz-pub-map-bottom{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:0.75rem 1rem;flex-wrap:wrap}
         .biz-pub-maps{display:block;padding:0.65rem 1.25rem;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#a1a1aa;font-size:0.875rem;font-weight:500;border-radius:10px;text-decoration:none;text-align:center;transition:all .2s}
         .biz-pub-maps:hover{border-color:rgba(255,255,255,0.2);color:#fff}
         .biz-pub-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -362,7 +421,7 @@ export default function BusinessPublicPage() {
         .biz-pub-map-img{width:100%;height:100%;object-fit:cover}
         .biz-pub-map-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;color:#f5c842;font-size:0.9rem;font-weight:600}
         .biz-pub-map-addr{padding:0.75rem 1rem;font-size:0.82rem;color:#71717a;background:rgba(255,255,255,0.03)}
-        @media(max-width:640px){.biz-pub-nav{padding:0 1rem}.biz-pub-header{flex-direction:column}.biz-pub-actions{flex-direction:row;width:100%}.biz-pub-call,.biz-pub-maps{flex:1}.biz-pub-info-grid{grid-template-columns:1fr}.biz-pub-products-grid{grid-template-columns:repeat(2,1fr)}}
+        @media(max-width:640px){.biz-pub-nav{padding:0 1rem}.biz-pub-header{flex-direction:column}.biz-pub-actions{flex-direction:row;flex-wrap:wrap;width:100%}.biz-pub-call,.biz-pub-maps,.biz-pub-wa{flex:1}.biz-pub-info-grid{grid-template-columns:1fr}.biz-pub-products-grid{grid-template-columns:repeat(2,1fr)}}
       `}</style>
     </div>
   );

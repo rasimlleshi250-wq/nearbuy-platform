@@ -6,6 +6,7 @@ import Link from "next/link";
 import { db } from "@/lib/firebase/config";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { trackProductClick } from "@/lib/firebase/analytics";
+import { whatsappLink } from "@/lib/businessInfo";
 
 interface Product {
   id: string;
@@ -33,6 +34,7 @@ interface BusinessProduct {
 interface Business {
   id: string;
   featured?: boolean;
+  whatsapp?: string;
   name: string;
   city: string;
   phone: string;
@@ -261,12 +263,24 @@ export default function ProductDetailPage() {
                       <span className={`det-stock ${bp.inStock ? "in" : "out"}`}>
                         {bp.inStock ? "✓ Në stok" : "✗ Pa stok"}
                       </span>
-                      {bp.inStock && (
-                        <a href={`tel:${bp.business.phone}`} className="det-call-btn"
-                          onClick={() => handleContactClick(bp.businessId)}>
-                          📞 Kontakto
-                        </a>
-                      )}
+                      {bp.inStock && (() => {
+                        const wa = whatsappLink(bp.business.whatsapp || bp.business.phone,
+                          `Përshëndetje, e keni "${product.name}"? E pashë në NearBuy.al me çmim ${displayPrice?.toLocaleString()} L.`);
+                        return (
+                          <div className="det-contact-row">
+                            {wa && (
+                              <a href={wa} target="_blank" rel="noopener noreferrer" className="det-wa-btn"
+                                onClick={() => handleContactClick(bp.businessId)}>
+                                💬 WhatsApp
+                              </a>
+                            )}
+                            <a href={`tel:${bp.business.phone}`} className="det-call-btn"
+                              onClick={() => handleContactClick(bp.businessId)}>
+                              📞 Telefono
+                            </a>
+                          </div>
+                        );
+                      })()}
                       <Link href={`/business/${bp.businessId}`} className="det-view-btn">
                         Shiko dyqanin →
                       </Link>
@@ -314,6 +328,9 @@ export default function ProductDetailPage() {
         .det-price-sub{font-size:0.75rem;color:#52525b}
         .det-desc h3{font-size:0.78rem;font-weight:700;color:#a1a1aa;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px}
         .det-desc p{font-size:0.875rem;color:#a1a1aa;line-height:1.7}
+        .det-contact-row{display:flex;gap:6px;flex-wrap:wrap}
+        .det-wa-btn{display:inline-flex;align-items:center;gap:4px;padding:0.5rem 0.9rem;background:#16a34a;color:#fff;font-size:0.82rem;font-weight:700;border-radius:8px;text-decoration:none;white-space:nowrap}
+        .det-wa-btn:hover{background:#15803d}
         .det-tags{display:flex;flex-wrap:wrap;gap:6px}
         .det-tag{font-size:0.72rem;padding:3px 9px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:999px;color:#71717a}
         .det-barcode{font-size:0.75rem;color:#52525b}
