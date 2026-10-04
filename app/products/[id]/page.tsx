@@ -32,12 +32,32 @@ interface BusinessProduct {
 
 interface Business {
   id: string;
+  featured?: boolean;
   name: string;
   city: string;
   phone: string;
   logo?: string;
   verified: boolean;
   address?: string;
+}
+
+// Abonimi aktiv? Kontrollon fushën e skadencës nëse ekziston (Timestamp, datë ose tekst)
+function isSubscriptionActive(b: Record<string, unknown>): boolean {
+  const raw = b.subscriptionEnd ?? b.subscriptionExpiry ?? b.subscriptionExpires ?? b.planExpiry ?? b.expiresAt;
+  if (!raw) return true;
+  const t = raw as { toDate?: () => Date; seconds?: number };
+  const end = typeof t.toDate === "function" ? t.toDate()
+    : typeof t.seconds === "number" ? new Date(t.seconds * 1000)
+    : new Date(String(raw));
+  return isNaN(end.getTime()) || end.getTime() > Date.now();
+}
+
+// Oferta vlen kur ka çmim oferte më të ulët se çmimi normal dhe data nuk ka kaluar
+function offerActive(bp: { price: number; offerPrice?: number; offerEnd?: string }): boolean {
+  if (!bp.offerPrice || bp.offerPrice <= 0 || bp.offerPrice >= bp.price) return false;
+  if (!bp.offerEnd) return true;
+  const end = new Date(bp.offerEnd + "T23:59:59");
+  return isNaN(end.getTime()) || end.getTime() >= Date.now();
 }
 
 export default function ProductDetailPage() {
@@ -64,20 +84,24 @@ export default function ProductDetailPage() {
         const bpSnap = await getDocs(bpQ);
         const bpList = bpSnap.docs.map(d => ({ id: d.id, ...d.data() } as BusinessProduct));
 
-        // Ngarko te dhenat e bizneseve
-        const results: (BusinessProduct & { business: Business })[] = [];
-        for (const bp of bpList) {
+        // Ngarko te dhenat e bizneseve — paralelisht
+        const loaded = await Promise.all(bpList.map(async bp => {
           try {
             const bSnap = await getDoc(doc(db, "businesses", bp.businessId));
-            if (bSnap.exists() && bSnap.data().verified) {
-              results.push({ ...bp, business: { id: bSnap.id, ...bSnap.data() } as Business });
-            }
-          } catch {}
-        }
+            if (!bSnap.exists() || !bSnap.data().verified) return null;
+            const raw = bSnap.data();
+            const business = { id: bSnap.id, ...raw } as Business;
+            // "Featured" vjen nga biznesi dhe vlen vetëm me abonim aktiv
+            business.featured = !!raw.featured && isSubscriptionActive(raw);
+            return { ...bp, business };
+          } catch { return null; }
+        }));
+        const results = loaded.filter((r): r is BusinessProduct & { business: Business } => r !== null);
         // Sorto: ofertat para, pastaj me stok, pastaj sipas cmimit
         results.sort((a, b) => {
-          if (a.hasOffer && !b.hasOffer) return -1;
-          if (!a.hasOffer && b.hasOffer) return 1;
+          const ao = offerActive(a), bo = offerActive(b);
+          if (ao && !bo) return -1;
+          if (!ao && bo) return 1;
           if (a.inStock && !b.inStock) return -1;
           if (!a.inStock && b.inStock) return 1;
           return (a.price || 0) - (b.price || 0);
@@ -93,10 +117,6 @@ export default function ProductDetailPage() {
     if (product) trackProductClick(businessId, productId, product.name);
   };
 
-  const isOfferActive = (offerEnd?: string) => {
-    if (!offerEnd) return false;
-    return new Date(offerEnd) > new Date();
-  };
 
   if (loading) return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -114,7 +134,7 @@ export default function ProductDetailPage() {
   );
 
   const lowestPrice = bizProducts.filter(b => b.inStock).reduce((min, b) => {
-    const p = b.hasOffer && isOfferActive(b.offerEnd) ? b.offerPrice || b.price : b.price;
+    const p = offerActive(b) ? b.offerPrice || b.price : b.price;
     return p < min ? p : min;
   }, Infinity);
 
@@ -181,11 +201,6 @@ export default function ProductDetailPage() {
               </div>
             )}
 
-            {product.tags && product.tags.length > 0 && (
-              <div className="det-tags">
-                {product.tags.map(t => <span key={t} className="det-tag">{t}</span>)}
-              </div>
-            )}
 
             {product.barcode && (
               <p className="det-barcode">Barkodi: <code>{product.barcode}</code></p>
@@ -197,7 +212,7 @@ export default function ProductDetailPage() {
         <div className="det-biz-section">
           <h2 className="det-section-title">
             🏪 Dyqanet që e shesin këtë produkt
-            <span className="det-biz-count">{bizProducts.length} dyqane</span>
+            <span className="det-biz-count">{bizProducts.length} {bizProducts.length === 1 ? "dyqan" : "dyqane"}</span>
           </h2>
 
           {bizProducts.length === 0 ? (
@@ -208,11 +223,11 @@ export default function ProductDetailPage() {
           ) : (
             <div className="det-biz-grid">
               {bizProducts.map(bp => {
-                const hasActiveOffer = bp.hasOffer && isOfferActive(bp.offerEnd);
+                const hasActiveOffer = offerActive(bp);
                 const displayPrice = hasActiveOffer ? bp.offerPrice || bp.price : bp.price;
                 return (
-                  <div key={bp.id} className={`det-biz-card ${!bp.inStock ? "out-of-stock" : ""} ${bp.featured ? "featured" : ""}`}>
-                    {bp.featured && <span className="det-featured-tag">⭐ Featured</span>}
+                  <div key={bp.id} className={`det-biz-card ${!bp.inStock ? "out-of-stock" : ""} ${bp.business.featured ? "featured" : ""}`}>
+                    {bp.business.featured && <span className="det-featured-tag">⭐ Featured</span>}
                     {hasActiveOffer && (
                       <span className="det-offer-tag">
                         🏷 -{Math.round((1 - (bp.offerPrice || bp.price) / bp.price) * 100)}%
@@ -305,7 +320,7 @@ export default function ProductDetailPage() {
         .det-barcode code{font-family:monospace;color:#71717a}
         .det-biz-section{margin-top:1rem}
         .det-section-title{font-size:1.1rem;font-weight:700;color:#fff;margin-bottom:1.25rem;display:flex;align-items:center;gap:10px}
-        .det-biz-count{font-size:0.75rem;font-weight:500;color:#71717a;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:999px}
+        .det-biz-count{white-space:nowrap;font-size:0.75rem;font-weight:500;color:#71717a;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:999px}
         .det-no-biz{padding:2rem;text-align:center;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.07);border-radius:12px;color:#71717a}
         .det-search-link{display:inline-block;margin-top:0.75rem;color:#f5c842;text-decoration:none;font-size:0.85rem}
         .det-biz-grid{display:flex;flex-direction:column;gap:10px}
