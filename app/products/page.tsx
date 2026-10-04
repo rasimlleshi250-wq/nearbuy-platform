@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { searchWords, pickMainTerm, matchesAllWords } from "@/lib/searchKeywords";
 import { db } from "@/lib/firebase/config";
 import {
   collection,
@@ -50,7 +52,7 @@ const PAGE_SIZE = 100;
 function buildBaseConstraints(
   catFilter: string,
   subcatFilter: string,
-  searchTerm: string
+  mainTerm: string | null
 ): QueryConstraint[] {
   const constraints: QueryConstraint[] = [where("status", "==", "active")];
 
@@ -61,12 +63,10 @@ function buildBaseConstraints(
     constraints.push(where("subcategory", "==", subcatFilter));
   }
 
-  // Prefix-range search on the name field (Firestore limitation workaround)
-  if (searchTerm.trim()) {
-    const s = searchTerm.trim();
-    const end = s.slice(0, -1) + String.fromCharCode(s.charCodeAt(s.length - 1) + 1);
-    constraints.push(where("name", ">=", s));
-    constraints.push(where("name", "<", end));
+  // Kërkim me fjalë kyçe — gjen çdo fjalë të emrit/markës,
+  // pa dalluar shkronja të mëdha/të vogla dhe ë/e, ç/c
+  if (mainTerm) {
+    constraints.push(where("searchKeywords", "array-contains", mainTerm));
   }
 
   return constraints;
@@ -76,14 +76,21 @@ function buildBaseConstraints(
 // Main component
 // ---------------------------------------------------------------------------
 
+function readCategoryParam(value: string | null): string {
+  return value && CATEGORIES.includes(value) ? value : "Të gjitha";
+}
+
 function ProductsContent() {
+  const searchParams = useSearchParams();
+  const [error, setError] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [catFilter, setCatFilter] = useState("Të gjitha");
+  // Kategoria lexohet nga linku, p.sh. /products?category=Ndërtim
+  const [catFilter, setCatFilter] = useState(() => readCategoryParam(searchParams.get("category")));
   const [subcatFilter, setSubcatFilter] = useState("Të gjitha");
   const [subcategories, setSubcategories] = useState<{ id: string; name: string }[]>([]);
 
@@ -107,21 +114,24 @@ function ProductsContent() {
       cursor?: QueryDocumentSnapshot<DocumentData> | null
     ) => {
       direction === "first" ? setLoading(true) : setLoadingMore(true);
+      setError("");
 
       try {
-        const base = buildBaseConstraints(catFilter, subcatFilter, search);
+        const words = searchWords(search);
+        const mainTerm = pickMainTerm(words);
+        const base = buildBaseConstraints(catFilter, subcatFilter, mainTerm);
 
-        // orderBy must come after all inequality filters
-        // If we use name search, orderBy("name") is required for the range filter
-        const orderField = search.trim() ? "name" : "name";
-        const baseWithOrder: QueryConstraint[] = [...base, orderBy(orderField)];
+        // Pa kërkim: renditje sipas emrit. Me kërkim: pa orderBy,
+        // që Firestore të mos kërkojë indeks të veçantë.
+        const baseWithOrder: QueryConstraint[] = mainTerm ? base : [...base, orderBy("name")];
 
         // ---- Count (only on first load or filter change) ----
         if (direction === "first") {
           try {
             const countQ = query(collection(db, "products"), ...base);
             const snap = await getCountFromServer(countQ);
-            setTotalCount(snap.data().count);
+            // Me disa fjalë kërkimi, numri i saktë nuk dihet (filtrohet në faqe)
+            setTotalCount(words.length > 1 ? null : snap.data().count);
           } catch {
             setTotalCount(null); // count index may not exist; non-fatal
           }
@@ -141,7 +151,12 @@ function ProductsContent() {
         const snap = await getDocs(q);
 
         const docs = snap.docs;
-        setProducts(docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
+        let list = docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+        // Kërkim me disa fjalë (p.sh. "tub pvc 50") — filtrojmë edhe fjalët e tjera
+        if (words.length > 1) {
+          list = list.filter((p) => matchesAllWords(`${p.name} ${p.brand || ""}`, words));
+        }
+        setProducts(list);
 
         if (docs.length > 0) {
           setFirstDoc(docs[0]);
@@ -166,6 +181,8 @@ function ProductsContent() {
         }
       } catch (e) {
         console.error("Firestore fetch error:", e);
+        setProducts([]);
+        setError("Produktet nuk u ngarkuan dot. Provo përsëri pas pak.");
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -187,6 +204,11 @@ function ProductsContent() {
     fetchPage("first");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catFilter, subcatFilter, search]);
+
+  // Kur linku ndryshon (p.sh. nga homepage te një kategori tjetër)
+  useEffect(() => {
+    setCatFilter(readCategoryParam(searchParams.get("category")));
+  }, [searchParams]);
 
   // Subcategories
   useEffect(() => {
@@ -275,7 +297,7 @@ function ProductsContent() {
             </svg>
             <input
               type="text"
-              placeholder="Kërko produkte... (prefix kërkim)"
+              placeholder="Kërko produkte, p.sh. tub pvc, bojë, bosch..."
               value={searchInput}
               onChange={(e) => handleSearchInput(e.target.value)}
               className="pd-search-input"
@@ -363,6 +385,11 @@ function ProductsContent() {
             {[...Array(12)].map((_, i) => (
               <div key={i} className="pd-skeleton" />
             ))}
+          </div>
+        ) : error ? (
+          <div className="pd-empty">
+            <span>⚠️</span>
+            <p>{error}</p>
           </div>
         ) : products.length === 0 ? (
           <div className="pd-empty">
