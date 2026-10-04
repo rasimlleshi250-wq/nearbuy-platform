@@ -20,6 +20,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
 import { getSubcategories } from "@/lib/firebase/firestore";
+import { searchWords, pickMainTerm, matchesAllWords } from "@/lib/searchKeywords";
 import { Product } from "@/types";
 import Link from "next/link";
 
@@ -30,20 +31,18 @@ const CAT_ICONS: Record<string, string> = {
 };
 const PAGE_SIZE = 100;
 
-// Ndërtojmë constraints duke i marrë vlerat SI PARAMETRA, jo nga closure
+// Ndërtojmë constraints duke i marrë vlerat SI PARAMETRA, jo nga closure.
+// Kërkimi përdor fushën "searchKeywords" (array) — gjen çdo fjalë të emrit,
+// pa dalluar shkronja të mëdha/të vogla dhe ë/e, ç/c.
 function buildConstraints(
   cat: string,
   subcat: string,
-  search: string
+  mainTerm: string | null
 ): QueryConstraint[] {
   const c: QueryConstraint[] = [];
   if (cat !== "Të gjitha")    c.push(where("category",    "==", cat));
   if (subcat !== "Të gjitha") c.push(where("subcategory", "==", subcat));
-  if (search.trim()) {
-    const s   = search.trim();
-    const end = s.slice(0, -1) + String.fromCharCode(s.charCodeAt(s.length - 1) + 1);
-    c.push(where("name", ">=", s), where("name", "<", end));
-  }
+  if (mainTerm)               c.push(where("searchKeywords", "array-contains", mainTerm));
   return c;
 }
 
@@ -65,10 +64,14 @@ async function fetchProductPage(params: {
 }> {
   const { direction, cat, subcat, search, cursor, currentPage } = params;
 
-  const base      = buildConstraints(cat, subcat, search);
-  // orderBy("name") gjithmonë — shmangim indeksin composite category+createdAt
-  // Firestore kërkon orderBy të njëjtë me fushën e inequality filter (name search)
-  const withOrder = [...base, orderBy("name")];
+  const words    = searchWords(search);
+  const mainTerm = pickMainTerm(words);
+  const base     = buildConstraints(cat, subcat, mainTerm);
+
+  // Pa kërkim: renditje sipas emrit (si më parë).
+  // Me kërkim: pa orderBy — kështu Firestore nuk kërkon indeks të veçantë
+  // për kombinimin kategori + kërkim.
+  const withOrder = mainTerm ? base : [...base, orderBy("name")];
 
   // Count — vetëm kur fillojmë nga e para
   let totalCount: number | null = null;
@@ -105,11 +108,19 @@ async function fetchProductPage(params: {
     direction === "prev" ? currentPage > 2 :
     false;
 
+  let products = docs.map(d => ({ id: d.id, ...d.data() } as Product));
+
+  // Nëse kërkimi ka disa fjalë (p.sh. "tub pvc 50"), filtrojmë edhe për fjalët e tjera
+  if (words.length > 1) {
+    products = products.filter(p => matchesAllWords(`${p.name} ${p.brand || ""}`, words));
+  }
+
   return {
-    products:  docs.map(d => ({ id: d.id, ...d.data() } as Product)),
+    products,
+    // Kursorët merren nga dokumentet e pafiltruara, që paginimi të mos prishet
     firstDoc:  docs.length > 0 ? docs[0] : null,
     lastDoc:   docs.length > 0 ? docs[docs.length - 1] : null,
-    totalCount,
+    totalCount: words.length > 1 ? null : totalCount,
     hasNext,
     hasPrev,
   };
@@ -121,6 +132,7 @@ export default function AdminProductsPage() {
   const [products, setProducts]       = useState<Product[]>([]);
   const [loading, setLoading]         = useState(true);
   const [loadingPage, setLoadingPage] = useState(false);
+  const [error, setError]             = useState("");
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch]           = useState("");
@@ -147,6 +159,7 @@ export default function AdminProductsPage() {
     page: number
   ) => {
     direction === "first" ? setLoading(true) : setLoadingPage(true);
+    setError("");
     try {
       const res = await fetchProductPage({
         direction, cat: catVal, subcat: subcatVal,
@@ -157,8 +170,12 @@ export default function AdminProductsPage() {
       setLastDoc(res.lastDoc);
       setHasNext(res.hasNext);
       setHasPrev(res.hasPrev);
-      if (res.totalCount !== null) setTotalCount(res.totalCount);
-    } catch (e) { console.error(e); }
+      setTotalCount(res.totalCount);
+    } catch (e) {
+      console.error(e);
+      setProducts([]);
+      setError("Kërkimi dështoi. Hap Console (F12) — nëse sheh një link për 'index', kliko atë për ta krijuar.");
+    }
     finally { setLoading(false); setLoadingPage(false); }
   };
 
@@ -240,7 +257,7 @@ export default function AdminProductsPage() {
         <span className="adm-search-icon">🔍</span>
         <input
           type="text"
-          placeholder="Kërko produkte..."
+          placeholder="Kërko produkte, p.sh. tub pvc, bojë, bosch..."
           value={searchInput}
           onChange={e => handleSearch(e.target.value)}
           className="adm-search-input"
@@ -295,6 +312,10 @@ export default function AdminProductsPage() {
       {/* Table */}
       {loading ? (
         <div className="adm-loading">Duke ngarkuar produktet...</div>
+      ) : error ? (
+        <div className="adm-empty">
+          <p className="adm-error-text">{error}</p>
+        </div>
       ) : products.length === 0 ? (
         <div className="adm-empty">
           <p>😕 Nuk u gjet asnjë produkt</p>
@@ -408,6 +429,7 @@ export default function AdminProductsPage() {
         .adm-meta-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem}
         .adm-meta-text{font-size:0.75rem;color:#52525b}
         .adm-loading,.adm-empty{text-align:center;padding:3rem;color:#71717a;font-size:0.9rem}
+        .adm-error-text{color:#f87171;max-width:520px;margin:0 auto;line-height:1.5}
         .adm-table-wrap{background:#141414;border:1px solid rgba(255,255,255,0.07);border-radius:14px;overflow:hidden}
         .adm-table{width:100%;border-collapse:collapse}
         .adm-table th{padding:0.75rem 1rem;text-align:left;font-size:0.75rem;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02)}
