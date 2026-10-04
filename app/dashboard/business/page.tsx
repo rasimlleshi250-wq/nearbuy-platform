@@ -8,6 +8,7 @@ import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "fireb
 import { getTotalStats, getLast30DaysStats, getTopProducts, getMonthComparison } from "@/lib/firebase/analytics";
 import Link from "next/link";
 import { getSubscriptionState, formatDate } from "@/lib/subscription";
+import { PLANS as PLAN_DEFS, PLAN_ORDER, getEffectivePlan, hasStats, normalizePlanId, formatEur } from "@/lib/plans";
 
 interface Business {
   id: string;
@@ -28,23 +29,6 @@ interface Business {
 interface DayData { date: string; count: number; }
 interface TopProduct { productId: string; name: string; count: number; }
 
-const PLANS = [
-  {
-    id: "basic", name: "Basic", price: "1,000", color: "#3b82f6",
-    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika bazë (totale)"],
-    notIncluded: ["Statistika me graf", "Klikime Maps", "Analiza e produkteve", "Badge Featured"],
-  },
-  {
-    id: "advanced", name: "Advanced", price: "1,500", color: "#a855f7", popular: true,
-    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika me graf 30 ditë", "Klikime Maps"],
-    notIncluded: ["Analiza e produkteve", "Badge Featured"],
-  },
-  {
-    id: "pro", name: "Pro", price: "2,500", color: "#f97316",
-    features: ["Listim i produkteve", "Profil i dyqanit", "Kërkueshmëri në platformë", "Statistika me graf 30 ditë", "Klikime Maps", "Top produkte", "Krahasim periudhash", "Badge Featured"],
-    notIncluded: [],
-  },
-];
 
 function MiniChart({ data, color }: { data: DayData[]; color: string }) {
   if (!data.length) return <div className="chart-empty">Pa të dhëna</div>;
@@ -116,12 +100,12 @@ export default function BusinessOverviewPage() {
         // Merr planin nga biznesi — vetëm nëse abonimi është aktiv (i aprovuar dhe pa skaduar)
         const bizData = bizSnap.exists() ? bizSnap.data() : (await getDoc(doc(db, "businesses", bid))).data();
         const st = getSubscriptionState(bizData || null);
-        const sub = st.active ? st.plan : "";
-        const isAdvancedOrPro = sub === "advanced" || sub === "pro";
-        const isPro = sub === "pro";
+        const eff = getEffectivePlan(bizData || null);
+        const isAdvancedOrPro = hasStats(eff, "charts");
+        const isPro = hasStats(eff, "full");
 
         // Përmbledhja mujore — për çdo plan aktiv
-        if (st.active) {
+        if (st.active && hasStats(eff, "monthly")) {
           try { setComparison(await getMonthComparison("businesses", bid)); } catch {}
         }
 
@@ -169,12 +153,14 @@ export default function BusinessOverviewPage() {
 
   if (!business) return null;
 
-  const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
+  const effPlan = getEffectivePlan(business as unknown as Record<string, unknown>);
+  const planColor: Record<string, string> = { baze: "#3b82f6", plus: "#a855f7", premium: "#f97316", free: "#71717a" };
   const subState = getSubscriptionState(business as unknown as Record<string, unknown>);
   const isSubscribed = subState.active;
   const isAdvanced = subState.active && subState.plan === "advanced";
-  const isPro = subState.active && subState.plan === "pro";
-  const isAdvancedOrPro = isAdvanced || isPro;
+  const isPro = hasStats(effPlan, "full");
+  const isAdvancedOrPro = hasStats(effPlan, "charts") || isAdvanced;
+  const atLimit = effPlan.maxProducts !== null && productCount >= effPlan.maxProducts;
   const plan = subState.plan;
   const pc = subState.expired ? "#71717a" : planColor[plan] || "#71717a";
   const sum14 = (d: DayData[]) => [...d].sort((a, b) => a.date.localeCompare(b.date)).slice(-14).reduce((n, x) => n + x.count, 0);
@@ -205,7 +191,7 @@ export default function BusinessOverviewPage() {
       </div>
 
       {/* Përmbledhja: çfarë solli NearBuy këtë muaj */}
-      {isSubscribed && comparison && (
+      {isSubscribed && hasStats(effPlan, "monthly") && comparison && (
         <div className="ov-summary">
           <p className="ov-summary-title">Këtë muaj NearBuy të solli</p>
           <p className="ov-summary-text">
@@ -260,17 +246,17 @@ export default function BusinessOverviewPage() {
           <div>
             <p className="ov-banner-title" style={{ color: "#93c5fd" }}>Kërkesë plani në pritje</p>
             <p className="ov-banner-sub" style={{ color: "#1e3a5f" }}>
-              Ke kërkuar planin <strong style={{ color: "#93c5fd" }}>{business.requestedPlan.charAt(0).toUpperCase() + business.requestedPlan.slice(1)}</strong>. Ekipi ynë do ta aprovojë së shpejti.
+              Ke kërkuar paketën <strong style={{ color: "#93c5fd" }}>{PLAN_DEFS[normalizePlanId(business.requestedPlan)].name}</strong>. Ekipi ynë do ta aprovojë së shpejti.
             </p>
           </div>
         </div>
       )}
       {!isSubscribed && !subState.expired && !(business.planStatus === "pending" && business.requestedPlan) && (
         <div className="ov-banner ov-banner-yellow">
-          <span>🔒</span>
+          <span>ℹ️</span>
           <div>
-            <p className="ov-banner-title" style={{ color: "#f5c842" }}>Nuk ke abonim aktiv</p>
-            <p className="ov-banner-sub" style={{ color: "#78716c" }}>Zgjidh një plan më poshtë për të shtuar produkte dhe për t'u shfaqur në platformë.</p>
+            <p className="ov-banner-title" style={{ color: "#f5c842" }}>Je në paketën Falas · {productCount}/{effPlan.maxProducts} produkte</p>
+            <p className="ov-banner-sub" style={{ color: "#a1a1aa" }}>Kalo te Bazë (€10/muaj) për deri në 300 produkte, ngarkim me Excel dhe oferta.</p>
           </div>
         </div>
       )}
@@ -287,14 +273,14 @@ export default function BusinessOverviewPage() {
         <div className="ov-stat">
           <span className="ov-stat-icon">👁</span>
           <div>
-            <p className="ov-stat-val">{isSubscribed ? totalViews.toLocaleString() : "—"}</p>
+            <p className="ov-stat-val">{totalViews.toLocaleString()}</p>
             <p className="ov-stat-label">Shikime gjithsej</p>
           </div>
         </div>
         <div className="ov-stat">
           <span className="ov-stat-icon">📞</span>
           <div>
-            <p className="ov-stat-val">{isSubscribed ? totalContacts.toLocaleString() : "—"}</p>
+            <p className="ov-stat-val">{totalContacts.toLocaleString()}</p>
             <p className="ov-stat-label">Kontakte gjithsej</p>
           </div>
         </div>
@@ -375,12 +361,14 @@ export default function BusinessOverviewPage() {
       {/* Quick actions */}
       <div className="ov-section-title">Veprime të shpejta</div>
       <div className="ov-actions">
-        {isSubscribed ? (
+        {!atLimit ? (
           <Link href="/dashboard/business/products" className="ov-action">
             <span className="ov-action-icon">➕</span>
             <div>
               <p className="ov-action-title">Shto produkt</p>
-              <p className="ov-action-sub">Regjistro produkte të reja</p>
+              <p className="ov-action-sub">
+                {effPlan.maxProducts === null ? "Pa limit" : `${productCount}/${effPlan.maxProducts} produkte`}
+              </p>
             </div>
           </Link>
         ) : (
@@ -388,7 +376,7 @@ export default function BusinessOverviewPage() {
             <span className="ov-action-icon">🔒</span>
             <div>
               <p className="ov-action-title">Shto produkt</p>
-              <p className="ov-action-sub">Kërkon abonim aktiv</p>
+              <p className="ov-action-sub">Ke arritur limitin {productCount}/{effPlan.maxProducts}. Kalo te një paketë më e madhe.</p>
             </div>
           </div>
         )}
@@ -401,49 +389,47 @@ export default function BusinessOverviewPage() {
         </Link>
       </div>
 
-      {/* Plans */}
-      <div className="ov-section-title">Planet e abonimit</div>
+      {/* Paketat */}
+      <div className="ov-section-title">Paketat</div>
       <div className="ov-plans">
-        {PLANS.map(p => {
-          const isCurrentPlan = subState.active && subState.plan === p.id;
-          const isPending = business.requestedPlan === p.id && business.planStatus === "pending";
+        {PLAN_ORDER.map(id => {
+          const p = PLAN_DEFS[id];
+          const isCurrentPlan = effPlan.id === id;
+          const isPending = normalizePlanId(business.requestedPlan) === id && business.planStatus === "pending" && id !== "free";
           return (
-            <div key={p.id} className={`ov-plan ${isCurrentPlan ? "ov-plan-active" : ""}`}
+            <div key={id} className={`ov-plan ${isCurrentPlan ? "ov-plan-active" : ""}`}
               style={{ borderColor: isCurrentPlan ? `${p.color}60` : isPending ? `${p.color}40` : undefined }}>
-              {(p as any).popular && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Më i popullarit</div>}
-              {isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Plani juaj</div>}
+              {id === "plus" && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Më e zgjedhura</div>}
+              {isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Paketa jote</div>}
               {isPending && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: "#52525b" }}>Në pritje</div>}
               <div className="ov-plan-header">
                 <p className="ov-plan-name" style={{ color: p.color }}>{p.name}</p>
                 <div className="ov-plan-price">
-                  <span className="ov-plan-amount">{p.price}</span>
-                  <span className="ov-plan-currency">L/muaj</span>
+                  <span className="ov-plan-amount">{formatEur(p.priceEur)}</span>
+                  {p.priceEur > 0 && <span className="ov-plan-currency">/muaj</span>}
                 </div>
               </div>
               <div className="ov-plan-features">
-                {p.features.map(f => (
+                {p.perks.map(f => (
                   <div key={f} className="ov-plan-feat">
                     <span className="ov-feat-check" style={{ color: p.color }}>✓</span>
                     <span>{f}</span>
                   </div>
                 ))}
-                {p.notIncluded.map(f => (
-                  <div key={f} className="ov-plan-feat ov-feat-no">
-                    <span className="ov-feat-check">✗</span>
-                    <span>{f}</span>
-                  </div>
-                ))}
               </div>
-              <button onClick={() => handleRequestPlan(p.id)}
-                disabled={requesting || isCurrentPlan || isPending}
-                className="ov-plan-btn"
-                style={isCurrentPlan || isPending ? {} : { background: p.color, boxShadow: `0 4px 20px ${p.color}40` }}>
-                {isCurrentPlan ? "Plani aktual" : isPending ? "⏳ Në pritje" : requestedSuccess === p.id ? "✓ Kërkesa u dërgua!" : "Zgjidh këtë plan"}
-              </button>
+              {id !== "free" && (
+                <button onClick={() => handleRequestPlan(id)}
+                  disabled={requesting || isCurrentPlan || isPending}
+                  className="ov-plan-btn"
+                  style={isCurrentPlan || isPending ? {} : { background: p.color, boxShadow: `0 4px 20px ${p.color}40` }}>
+                  {isCurrentPlan ? "Paketa aktuale" : isPending ? "⏳ Në pritje" : requestedSuccess === id ? "✓ Kërkesa u dërgua!" : "Zgjidh këtë paketë"}
+                </button>
+              )}
             </div>
           );
         })}
       </div>
+      <p className="ov-plans-note">Pas kërkesës do të të kontaktojmë për pagesën. Paketa aktivizohet sapo të konfirmohet pagesa.</p>
 
       <style>{`
         .ov-root{display:flex;flex-direction:column;gap:1.25rem;max-width:820px}
@@ -498,7 +484,8 @@ export default function BusinessOverviewPage() {
         .ov-action-icon{font-size:1.3rem}
         .ov-action-title{font-size:0.875rem;font-weight:600;color:#e4e4e7}
         .ov-action-sub{font-size:0.75rem;color:#71717a;margin-top:1px}
-        .ov-plans{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .ov-plans{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+        .ov-plans-note{font-size:0.78rem;color:#71717a;margin-top:-0.5rem}
         .ov-plan{position:relative;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;gap:1rem;transition:border-color .2s}
         .ov-plan-active{background:rgba(255,255,255,0.05)}
         .ov-plan-tag{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:0.68rem;font-weight:700;color:white;padding:2px 10px;border-radius:20px;white-space:nowrap}
@@ -515,6 +502,7 @@ export default function BusinessOverviewPage() {
         .ov-plan-btn{width:100%;padding:0.6rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:white;font-size:0.8rem;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s,transform .15s}
         .ov-plan-btn:hover:not(:disabled){opacity:0.85;transform:translateY(-1px)}
         .ov-plan-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+        @media(max-width:900px){.ov-plans{grid-template-columns:1fr 1fr}}
         @media(max-width:700px){.ov-stats{grid-template-columns:1fr 1fr}.ov-charts,.ov-plans{grid-template-columns:1fr}.ov-compare,.ov-actions{grid-template-columns:1fr}}
       `}</style>
     </div>

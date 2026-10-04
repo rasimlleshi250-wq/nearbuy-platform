@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, getDocs, limit } from "firebase/firestore";
+import { getEffectivePlan } from "@/lib/plans";
 
 interface Business {
   id: string;
@@ -68,9 +69,16 @@ export default function HomePage() {
   useEffect(() => {
     const loadBusinesses = async () => {
       try {
-        const q = query(collection(db, "businesses"), where("verified", "==", true), limit(6));
+        // Premium dalin të parat dhe me "Featured"; pastaj Plus, pastaj të tjerët
+        const q = query(collection(db, "businesses"), where("verified", "==", true), limit(30));
         const snap = await getDocs(q);
-        setBusinesses(snap.docs.map(d => ({ id: d.id, ...d.data() } as Business)));
+        const list = snap.docs.map(d => {
+          const raw = d.data();
+          const plan = getEffectivePlan(raw);
+          return { id: d.id, ...raw, featured: plan.featured, rank: plan.rank } as Business & { rank: number };
+        });
+        list.sort((a, b) => b.rank - a.rank);
+        setBusinesses(list.slice(0, 6));
       } catch (e) { console.error(e); }
       finally { setLoadingBiz(false); }
     };

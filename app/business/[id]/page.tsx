@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase/config";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { trackView, trackContact, trackMapsClick } from "@/lib/firebase/analytics";
 import { DAYS, DayHours, isValidHours, openStatus, whatsappLink } from "@/lib/businessInfo";
+import { getEffectivePlan } from "@/lib/plans";
 
 interface Business {
   id: string;
@@ -47,17 +48,6 @@ interface Product {
   offerEnd?: string;
 }
 
-// Abonimi aktiv? Kontrollon fushën e skadencës nëse ekziston (Timestamp, datë ose tekst)
-function isSubscriptionActive(b: Record<string, unknown>): boolean {
-  const raw = b.subscriptionEnd ?? b.subscriptionExpiry ?? b.subscriptionExpires ?? b.planExpiry ?? b.expiresAt;
-  if (!raw) return true;
-  const t = raw as { toDate?: () => Date; seconds?: number };
-  const end = typeof t.toDate === "function" ? t.toDate()
-    : typeof t.seconds === "number" ? new Date(t.seconds * 1000)
-    : new Date(String(raw));
-  return isNaN(end.getTime()) || end.getTime() > Date.now();
-}
-
 // Oferta vlen vetëm nëse nuk ka kaluar data e mbarimit
 function offerIsActive(offerEnd?: string): boolean {
   if (!offerEnd) return true;
@@ -81,8 +71,10 @@ export default function BusinessPublicPage() {
         if (!snap.exists() || !snap.data().verified) { setNotFound(true); setLoading(false); return; }
         const raw = snap.data();
         const biz = { id: snap.id, ...raw } as Business;
-        // "Featured" shfaqet vetëm kur abonimi është aktiv
-        biz.featured = !!raw.featured && isSubscriptionActive(raw);
+        // Paketa vendos "Featured" dhe nëse shfaqen ofertat
+        const plan = getEffectivePlan(raw);
+        biz.featured = plan.featured;
+        const planOffers = plan.offers;
         setBusiness(biz);
 
         // Gjurmo shikimin
@@ -101,7 +93,7 @@ export default function BusinessPublicPage() {
             if (!ps.exists()) return null;
             const pd = ps.data();
             if ((pd.status || "active") !== "active" || !pd.name) return null;
-            const offerActive = !!data.offerPrice && data.offerPrice < (data.price || 0) && offerIsActive(data.offerEnd);
+            const offerActive = planOffers && !!data.offerPrice && data.offerPrice < (data.price || 0) && offerIsActive(data.offerEnd);
             return {
               id: d.id, productId: data.productId, name: pd.name, image: pd.images?.[0] || "", category: pd.category || "",
               price: data.price || 0, inStock: data.inStock ?? true,

@@ -2,11 +2,14 @@
 // Aktiv = planStatus "active" DHE subscriptionEnd nuk ka kaluar.
 
 export const PLAN_LABELS: Record<string, string> = {
-  free: "Falas", basic: "Basic", advanced: "Advanced", pro: "Pro",
+  free: "Falas", baze: "Bazë", plus: "Plus", premium: "Premium",
+  // emrat e vjetër
+  basic: "Bazë", advanced: "Plus", pro: "Premium",
 };
+const LEGACY: Record<string, string> = { basic: "baze", advanced: "plus", pro: "premium" };
 
 export interface SubscriptionState {
-  plan: string;          // "free" | "basic" | "advanced" | "pro"
+  plan: string;          // "free" | "baze" | "plus" | "premium"
   label: string;         // për shfaqje
   active: boolean;       // plan me pagesë, i aprovuar dhe pa skaduar
   expired: boolean;      // kishte plan me pagesë, por data kaloi
@@ -25,7 +28,8 @@ export function toDate(raw: unknown): Date | null {
 }
 
 export function getSubscriptionState(b: Record<string, unknown> | null | undefined): SubscriptionState {
-  const plan = String(b?.subscription || "free");
+  const rawPlan = String(b?.subscription || "free").toLowerCase();
+  const plan = LEGACY[rawPlan] || rawPlan;
   const endDate = toDate(b?.subscriptionEnd);
   const daysLeft = endDate ? Math.ceil((endDate.getTime() - Date.now()) / 86400000) : null;
   const paid = plan !== "free";

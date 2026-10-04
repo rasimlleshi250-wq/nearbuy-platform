@@ -24,6 +24,7 @@ interface Props {
   catalog: ImportCatalogItem[];
   linkedProductIds: Set<string>;
   pendingRequestNames: Set<string>;
+  maxNew?: number | null; // sa produkte të reja lejon paketa (null = pa limit)
   onDone: () => void;
 }
 
@@ -54,7 +55,7 @@ interface Row {
 
 const nameKey = (s: string) => extractWords(s).join(" ");
 
-export default function ExcelImport({ businessId, businessName, catalog, linkedProductIds, pendingRequestNames, onDone }: Props) {
+export default function ExcelImport({ businessId, businessName, catalog, linkedProductIds, pendingRequestNames, maxNew = null, onDone }: Props) {
   const [step, setStep] = useState<"upload" | "map" | "review" | "done">("upload");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -151,6 +152,12 @@ export default function ExcelImport({ businessId, businessName, catalog, linkedP
       // Nëse i njëjti produkt del dy herë në Excel, mbahet rreshti i fundit
       const links = new Map<string, Row>();
       toLink.forEach(r => links.set(r.choice, r));
+      const newLinks = Array.from(links.keys()).filter(id => !linkedProductIds.has(id)).length;
+      if (maxNew !== null && newLinks > maxNew) {
+        setError(`Paketa jote lejon edhe ${maxNew} produkte të reja, por zgjodhe ${newLinks}. Anashkalo disa, ose kalo te një paketë më e madhe. Përditësimi i çmimeve të produkteve që ke tashmë funksionon pa limit.`);
+        setBusy(false);
+        return;
+      }
       const requests = new Map<string, Row>();
       toRequest.forEach(r => { const k = nameKey(r.name); if (k && !pendingRequestNames.has(k)) requests.set(k, r); });
 

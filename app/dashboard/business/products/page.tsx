@@ -7,6 +7,8 @@ import { collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, dele
 import { searchWords, matchesAllWords } from "@/lib/searchKeywords";
 import { extractWords } from "@/lib/productMatcher";
 import ExcelImport from "./ExcelImport";
+import { PLANS, PlanDef, getEffectivePlan, remainingSlots } from "@/lib/plans";
+import Link from "next/link";
 
 interface ProductRequest {
   id: string;
@@ -52,6 +54,7 @@ export default function BusinessProductsPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<"mine" | "add" | "excel">("mine");
   const [businessName, setBusinessName] = useState("");
+  const [plan, setPlan] = useState<PlanDef>(PLANS.free);
   const [requests, setRequests] = useState<ProductRequest[]>([]);
   const [myProducts, setMyProducts] = useState<MyProduct[]>([]);
   const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
@@ -85,6 +88,7 @@ export default function BusinessProductsPage() {
         }
         setBusinessId(bid);
         setBusinessName(String(bizData?.name || bizData?.businessName || ""));
+        setPlan(getEffectivePlan(bizData || null));
 
         // Ngarko katalogun një herë — përdoret edhe për emrat/fotot e produkteve të mia
         const catSnap = await getDocs(collection(db, "products"));
@@ -178,9 +182,13 @@ export default function BusinessProductsPage() {
 
   const addProduct = async (cat: CatalogProduct) => {
     if (!businessId) return;
+    if (remainingSlots(plan, myProducts.length) === 0) {
+      alert(`Ke arritur limitin e paketës ${plan.name} (${plan.maxProducts} produkte). Kalo te një paketë më e madhe nga faqja kryesore.`);
+      return;
+    }
     const f = addForm[cat.id] || { price: "", inStock: true, hasOffer: false, offerPrice: "", offerEnd: "" };
     if (!f.price || isNaN(Number(f.price))) { alert("Vendos çmimin!"); return; }
-    if (f.hasOffer && (!f.offerPrice || isNaN(Number(f.offerPrice)))) { alert("Vendos çmimin e ofertës!"); return; }
+    if (plan.offers && f.hasOffer && (!f.offerPrice || isNaN(Number(f.offerPrice)))) { alert("Vendos çmimin e ofertës!"); return; }
     const alreadyAdded = myProducts.some(p => p.productId === cat.id);
     if (alreadyAdded) { alert("Ky produkt është shtuar tashmë!"); return; }
     setSaving(cat.id);
@@ -191,8 +199,8 @@ export default function BusinessProductsPage() {
         productId: cat.id,
         price: Number(f.price),
         inStock: f.inStock,
-        offerPrice: f.hasOffer && f.offerPrice ? Number(f.offerPrice) : null,
-        offerEnd: f.hasOffer && f.offerEnd ? f.offerEnd : null,
+        offerPrice: plan.offers && f.hasOffer && f.offerPrice ? Number(f.offerPrice) : null,
+        offerEnd: plan.offers && f.hasOffer && f.offerEnd ? f.offerEnd : null,
         featured: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -235,7 +243,12 @@ export default function BusinessProductsPage() {
       <div className="pr-header">
         <div>
           <h1 className="pr-title">Produktet</h1>
-          <p className="pr-sub">Menaxho dhe shto produkte në dyqanin tënd</p>
+          <p className="pr-sub">
+            Paketa {plan.name} · {myProducts.length}{plan.maxProducts !== null ? `/${plan.maxProducts}` : ""} produkte
+            {plan.maxProducts !== null && myProducts.length >= plan.maxProducts && (
+              <> · <Link href="/dashboard/business" className="pr-upgrade">Kalo te një paketë më e madhe</Link></>
+            )}
+          </p>
         </div>
       </div>
 
@@ -257,7 +270,16 @@ export default function BusinessProductsPage() {
       {/* Tab: Excel */}
       {tab === "excel" && businessId && (
         <>
+          {!plan.excel ? (
+            <div className="pr-empty">
+              <span className="pr-empty-icon">🔒</span>
+              <p className="pr-empty-title">Ngarkimi me Excel është nga paketa Bazë</p>
+              <p className="pr-empty-sub">Me paketën Bazë (€10/muaj) shton deri në 300 produkte njëherësh nga Excel-i dhe vendos oferta.</p>
+              <Link href="/dashboard/business" className="pr-empty-btn">Shiko paketat</Link>
+            </div>
+          ) : (
           <ExcelImport
+            maxNew={remainingSlots(plan, myProducts.length)}
             businessId={businessId}
             businessName={businessName}
             catalog={activeCatalog}
@@ -265,6 +287,7 @@ export default function BusinessProductsPage() {
             pendingRequestNames={pendingRequestNames}
             onDone={() => { loadMyProducts(businessId); loadRequests(businessId); }}
           />
+          )}
           {requests.length > 0 && (
             <div className="pr-req">
               <h3 className="pr-req-title">Kërkesat e mia ({requests.length})</h3>
@@ -348,10 +371,14 @@ export default function BusinessProductsPage() {
                           <input type="checkbox" checked={editForm.inStock} onChange={e => setEditForm(f => ({ ...f, inStock: e.target.checked }))} />
                           Në stok
                         </label>
-                        <label className="pr-check pr-check-offer">
-                          <input type="checkbox" checked={editForm.hasOffer} onChange={e => setEditForm(f => ({ ...f, hasOffer: e.target.checked }))} />
-                          🏷 Shto ofertë
-                        </label>
+                        {plan.offers ? (
+                          <label className="pr-check pr-check-offer">
+                            <input type="checkbox" checked={editForm.hasOffer} onChange={e => setEditForm(f => ({ ...f, hasOffer: e.target.checked }))} />
+                            🏷 Shto ofertë
+                          </label>
+                        ) : (
+                          <span className="pr-locked">🔒 Ofertat — nga paketa Bazë</span>
+                        )}
                       </div>
                       {editForm.hasOffer && (
                         <div className="pr-offer-section">
@@ -442,11 +469,13 @@ export default function BusinessProductsPage() {
                                 onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, inStock: e.target.checked } }))} />
                               Në stok
                             </label>
-                            <label className="pr-check pr-check-small pr-check-offer">
-                              <input type="checkbox" checked={f.hasOffer || false}
-                                onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, hasOffer: e.target.checked } }))} />
-                              🏷 Ofertë
-                            </label>
+                            {plan.offers && (
+                              <label className="pr-check pr-check-small pr-check-offer">
+                                <input type="checkbox" checked={f.hasOffer || false}
+                                  onChange={e => setAddForm(prev => ({ ...prev, [c.id]: { ...f, hasOffer: e.target.checked } }))} />
+                                🏷 Ofertë
+                              </label>
+                            )}
                           </div>
                           <button onClick={() => addProduct(c)} disabled={saving === c.id || !f.price} className="pr-btn-add">
                             {saving === c.id ? "..." : "➕ Shto"}
@@ -486,6 +515,9 @@ export default function BusinessProductsPage() {
         .pr-header{display:flex;align-items:center;justify-content:space-between}
         .pr-title{font-size:1.3rem;font-weight:700;color:#f4f4f5;letter-spacing:-0.02em}
         .pr-sub{font-size:0.82rem;color:#71717a;margin-top:2px}
+        .pr-upgrade{color:#f97316;font-weight:600;text-decoration:none}
+        .pr-locked{font-size:0.78rem;color:#71717a}
+        a.pr-empty-btn{text-decoration:none;display:inline-block}
         .pr-success{background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);color:#22c55e;font-size:0.85rem;border-radius:10px;padding:0.65rem 1rem}
         .pr-tabs{display:flex;gap:6px}
         .pr-tab{padding:0.55rem 1.25rem;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#71717a;font-size:0.85rem;font-weight:500;cursor:pointer;font-family:inherit;transition:all .2s}

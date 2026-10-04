@@ -64,7 +64,7 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
 
   const initials = profile?.displayName?.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "B";
 
-  const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
+  const planColor: Record<string, string> = { baze: "#3b82f6", plus: "#a855f7", premium: "#f97316", free: "#71717a" };
   const sub = getSubscriptionState(business as unknown as Record<string, unknown>);
   // Kur plani ka skaduar, shfaqet gri — që të mos duket sikur është ende aktiv
   const badgeColor = sub.expired ? "#71717a" : planColor[sub.plan] || "#71717a";

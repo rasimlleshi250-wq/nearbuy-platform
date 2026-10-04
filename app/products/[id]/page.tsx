@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase/config";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { trackProductClick } from "@/lib/firebase/analytics";
 import { whatsappLink } from "@/lib/businessInfo";
+import { getEffectivePlan } from "@/lib/plans";
 
 interface Product {
   id: string;
@@ -35,6 +36,8 @@ interface Business {
   id: string;
   featured?: boolean;
   whatsapp?: string;
+  planRank?: number;
+  planOffers?: boolean;
   name: string;
   city: string;
   phone: string;
@@ -43,19 +46,10 @@ interface Business {
   address?: string;
 }
 
-// Abonimi aktiv? Kontrollon fushën e skadencës nëse ekziston (Timestamp, datë ose tekst)
-function isSubscriptionActive(b: Record<string, unknown>): boolean {
-  const raw = b.subscriptionEnd ?? b.subscriptionExpiry ?? b.subscriptionExpires ?? b.planExpiry ?? b.expiresAt;
-  if (!raw) return true;
-  const t = raw as { toDate?: () => Date; seconds?: number };
-  const end = typeof t.toDate === "function" ? t.toDate()
-    : typeof t.seconds === "number" ? new Date(t.seconds * 1000)
-    : new Date(String(raw));
-  return isNaN(end.getTime()) || end.getTime() > Date.now();
-}
-
 // Oferta vlen kur ka çmim oferte më të ulët se çmimi normal dhe data nuk ka kaluar
-function offerActive(bp: { price: number; offerPrice?: number; offerEnd?: string }): boolean {
+function offerActive(bp: { price: number; offerPrice?: number; offerEnd?: string; business?: { planOffers?: boolean } }): boolean {
+  // Ofertat shfaqen vetëm nëse paketa e biznesit i përfshin
+  if (bp.business && bp.business.planOffers === false) return false;
   if (!bp.offerPrice || bp.offerPrice <= 0 || bp.offerPrice >= bp.price) return false;
   if (!bp.offerEnd) return true;
   const end = new Date(bp.offerEnd + "T23:59:59");
@@ -93,14 +87,21 @@ export default function ProductDetailPage() {
             if (!bSnap.exists() || !bSnap.data().verified) return null;
             const raw = bSnap.data();
             const business = { id: bSnap.id, ...raw } as Business;
-            // "Featured" vjen nga biznesi dhe vlen vetëm me abonim aktiv
-            business.featured = !!raw.featured && isSubscriptionActive(raw);
+            // Paketa vendos: Featured, ofertat dhe renditjen
+            const plan = getEffectivePlan(raw);
+            business.featured = plan.featured;
+            business.planRank = plan.rank;
+            business.planOffers = plan.offers;
             return { ...bp, business };
           } catch { return null; }
         }));
         const results = loaded.filter((r): r is BusinessProduct & { business: Business } => r !== null);
         // Sorto: ofertat para, pastaj me stok, pastaj sipas cmimit
         results.sort((a, b) => {
+          // 1) në stok  2) paketa (Premium > Plus > të tjerat)  3) ofertë  4) çmimi
+          if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
+          const ra = a.business.planRank || 0, rb = b.business.planRank || 0;
+          if (ra !== rb) return rb - ra;
           const ao = offerActive(a), bo = offerActive(b);
           if (ao && !bo) return -1;
           if (!ao && bo) return 1;
