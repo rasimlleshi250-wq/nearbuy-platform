@@ -34,6 +34,7 @@ interface MyProduct {
   offerPrice?: number;
   offerEnd?: string;
   featured?: boolean;
+  missing?: boolean; // produkti është fshirë ose çaktivizuar nga katalogu
 }
 
 interface CatalogProduct {
@@ -59,7 +60,7 @@ export default function BusinessProductsPage() {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ price: "", inStock: true, hasOffer: false, offerPrice: "", offerEnd: "", featured: false });
+  const [editForm, setEditForm] = useState({ price: "", inStock: true, hasOffer: false, offerPrice: "", offerEnd: "" });
   const [addForm, setAddForm] = useState<Record<string, { price: string; inStock: boolean; hasOffer: boolean; offerPrice: string; offerEnd: string }>>({});
   const [successMsg, setSuccessMsg] = useState("");
 
@@ -105,19 +106,25 @@ export default function BusinessProductsPage() {
     const prods: MyProduct[] = [];
     for (const d of snap.docs) {
       const data = d.data();
-      let name = "", image = "", category = "";
+      let name = "", image = "", category = "", missing = true;
       const known = data.productId ? byId.get(data.productId) : undefined;
       if (known) {
         // Nga katalogu që kemi ngarkuar tashmë — pa lexime shtesë
         name = known.name; image = known.images?.[0] || ""; category = known.category;
+        missing = (known.status || "active") !== "active";
       } else if (data.productId) {
         try {
           const ps = await getDoc(doc(db, "products", data.productId));
-          if (ps.exists()) { name = ps.data().name; image = ps.data().images?.[0] || ""; category = ps.data().category; }
+          if (ps.exists()) {
+            name = ps.data().name; image = ps.data().images?.[0] || ""; category = ps.data().category;
+            missing = (ps.data().status || "active") !== "active";
+          }
         } catch {}
       }
-      prods.push({ id: d.id, productId: data.productId, name, image, category, price: data.price || 0, inStock: data.inStock ?? true, offerPrice: data.offerPrice, offerEnd: data.offerEnd, featured: data.featured });
+      prods.push({ id: d.id, productId: data.productId, name, image, category, price: data.price || 0, inStock: data.inStock ?? true, offerPrice: data.offerPrice || undefined, offerEnd: data.offerEnd || undefined, missing });
     }
+    // Produktet që nuk ekzistojnë më dalin të parat, që biznesi t'i heqë
+    prods.sort((a, b) => Number(!!b.missing) - Number(!!a.missing));
     setMyProducts(prods);
   };
 
@@ -132,7 +139,7 @@ export default function BusinessProductsPage() {
 
   const openEdit = (p: MyProduct) => {
     setEditId(p.id);
-    setEditForm({ price: String(p.price), inStock: p.inStock, hasOffer: !!p.offerPrice, offerPrice: p.offerPrice ? String(p.offerPrice) : "", offerEnd: p.offerEnd || "", featured: p.featured || false });
+    setEditForm({ price: String(p.price), inStock: p.inStock, hasOffer: !!p.offerPrice, offerPrice: p.offerPrice ? String(p.offerPrice) : "", offerEnd: p.offerEnd || "" });
   };
 
   const saveEdit = async (p: MyProduct) => {
@@ -142,15 +149,15 @@ export default function BusinessProductsPage() {
       await updateDoc(doc(db, "business_products", p.id), {
         price: Number(editForm.price),
         inStock: editForm.inStock,
-        offerPrice: editForm.offerPrice ? Number(editForm.offerPrice) : null,
-        offerEnd: editForm.offerEnd || null,
-        featured: editForm.featured,
+        // Kur hiqet shenja "Shto ofertë", oferta fshihet vërtet
+        offerPrice: editForm.hasOffer && editForm.offerPrice ? Number(editForm.offerPrice) : null,
+        offerEnd: editForm.hasOffer && editForm.offerEnd ? editForm.offerEnd : null,
         updatedAt: serverTimestamp(),
       });
       setMyProducts(prev => prev.map(x => x.id === p.id ? {
         ...x, price: Number(editForm.price), inStock: editForm.inStock,
-        offerPrice: editForm.offerPrice ? Number(editForm.offerPrice) : undefined,
-        offerEnd: editForm.offerEnd || undefined, featured: editForm.featured
+        offerPrice: editForm.hasOffer && editForm.offerPrice ? Number(editForm.offerPrice) : undefined,
+        offerEnd: editForm.hasOffer ? editForm.offerEnd || undefined : undefined
       } : x));
       setEditId(null);
       showSuccess("Produkti u përditësua!");
@@ -290,6 +297,20 @@ export default function BusinessProductsPage() {
         ) : (
           <div className="pr-list">
             {myProducts.map(p => (
+              p.missing ? (
+              <div key={p.id} className="pr-item pr-item-missing">
+                <div className="pr-item-left">
+                  <div className="pr-item-img"><span>⚠️</span></div>
+                  <div className="pr-item-info">
+                    <p className="pr-item-name">{p.name || "Produkt i panjohur"}</p>
+                    <p className="pr-missing-txt">Ky produkt nuk ekziston më në katalog dhe klientët nuk e shohin. Hiqe nga lista jote.</p>
+                  </div>
+                </div>
+                <div className="pr-item-right">
+                  <button onClick={() => deleteProduct(p.id)} disabled={saving === p.id} className="pr-btn-del">🗑 Hiq</button>
+                </div>
+              </div>
+              ) : (
               <div key={p.id} className={`pr-item ${editId === p.id ? "pr-item-editing" : ""}`}>
                 <div className="pr-item-left">
                   <div className="pr-item-img">
@@ -303,7 +324,6 @@ export default function BusinessProductsPage() {
                         {p.inStock ? "✓ Në stok" : "✗ Jashtë stoku"}
                       </span>
                       {p.offerPrice && <span className="pr-offer-badge">🏷 Ofertë</span>}
-                      {p.featured && <span className="pr-feat-badge">⭐ Featured</span>}
                     </div>
                   </div>
                 </div>
@@ -327,10 +347,6 @@ export default function BusinessProductsPage() {
                         <label className="pr-check">
                           <input type="checkbox" checked={editForm.inStock} onChange={e => setEditForm(f => ({ ...f, inStock: e.target.checked }))} />
                           Në stok
-                        </label>
-                        <label className="pr-check">
-                          <input type="checkbox" checked={editForm.featured} onChange={e => setEditForm(f => ({ ...f, featured: e.target.checked }))} />
-                          Featured
                         </label>
                         <label className="pr-check pr-check-offer">
                           <input type="checkbox" checked={editForm.hasOffer} onChange={e => setEditForm(f => ({ ...f, hasOffer: e.target.checked }))} />
@@ -367,6 +383,7 @@ export default function BusinessProductsPage() {
                   )}
                 </div>
               </div>
+              )
             ))}
           </div>
         )
@@ -481,6 +498,8 @@ export default function BusinessProductsPage() {
         .pr-empty-btn{padding:0.6rem 1.5rem;background:#f97316;color:#fff;border:none;border-radius:10px;font-size:0.85rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px}
         .pr-list{display:flex;flex-direction:column;gap:10px}
         .pr-item{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1rem;display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;transition:border-color .2s}
+        .pr-item-missing{border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.04)}
+        .pr-missing-txt{font-size:0.78rem;color:#f87171;line-height:1.4}
         .pr-item-editing{border-color:rgba(249,115,22,0.3);background:rgba(249,115,22,0.03)}
         .pr-item-left{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
         .pr-item-img{width:56px;height:56px;border-radius:10px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;font-size:1.5rem;overflow:hidden;flex-shrink:0}

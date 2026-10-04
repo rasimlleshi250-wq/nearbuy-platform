@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase/config";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { getTotalStats, getLast30DaysStats, getTopProducts, getMonthComparison } from "@/lib/firebase/analytics";
 import Link from "next/link";
+import { getSubscriptionState, formatDate } from "@/lib/subscription";
 
 interface Business {
   id: string;
@@ -21,6 +22,7 @@ interface Business {
   description?: string;
   requestedPlan?: string;
   planStatus?: string;
+  subscriptionEnd?: unknown;
 }
 
 interface DayData { date: string; count: number; }
@@ -111,10 +113,17 @@ export default function BusinessOverviewPage() {
         setTotalViews(total.totalViews);
         setTotalContacts(total.totalContacts);
 
-        // Merr planin nga biznesi
-        const sub = bizSnap.exists() ? bizSnap.data().subscription : "";
+        // Merr planin nga biznesi — vetëm nëse abonimi është aktiv (i aprovuar dhe pa skaduar)
+        const bizData = bizSnap.exists() ? bizSnap.data() : (await getDoc(doc(db, "businesses", bid))).data();
+        const st = getSubscriptionState(bizData || null);
+        const sub = st.active ? st.plan : "";
         const isAdvancedOrPro = sub === "advanced" || sub === "pro";
         const isPro = sub === "pro";
+
+        // Përmbledhja mujore — për çdo plan aktiv
+        if (st.active) {
+          try { setComparison(await getMonthComparison("businesses", bid)); } catch {}
+        }
 
         if (isAdvancedOrPro) {
           const stats30 = await getLast30DaysStats("businesses", bid);
@@ -127,8 +136,6 @@ export default function BusinessOverviewPage() {
         if (isPro) {
           const top = await getTopProducts(bid);
           setTopProducts(top);
-          const comp = await getMonthComparison("businesses", bid);
-          setComparison(comp);
         }
 
       } catch (e) {
@@ -163,13 +170,14 @@ export default function BusinessOverviewPage() {
   if (!business) return null;
 
   const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
-  const isSubscribed = business.subscription && business.subscription !== "free" && business.planStatus === "active";
-  const isBasic = business.subscription === "basic" && business.planStatus === "active";
-  const isAdvanced = business.subscription === "advanced" && business.planStatus === "active";
-  const isPro = business.subscription === "pro" && business.planStatus === "active";
+  const subState = getSubscriptionState(business as unknown as Record<string, unknown>);
+  const isSubscribed = subState.active;
+  const isAdvanced = subState.active && subState.plan === "advanced";
+  const isPro = subState.active && subState.plan === "pro";
   const isAdvancedOrPro = isAdvanced || isPro;
-  const plan = business.subscription || "free";
-  const pc = planColor[plan] || "#71717a";
+  const plan = subState.plan;
+  const pc = subState.expired ? "#71717a" : planColor[plan] || "#71717a";
+  const sum14 = (d: DayData[]) => [...d].sort((a, b) => a.date.localeCompare(b.date)).slice(-14).reduce((n, x) => n + x.count, 0);
 
   const pctChange = (now: number, prev: number) => {
     if (prev === 0) return now > 0 ? "+100%" : "—";
@@ -192,9 +200,49 @@ export default function BusinessOverviewPage() {
           </div>
         </div>
         <span className="ov-plan-badge" style={{ background: `${pc}18`, color: pc, borderColor: `${pc}40` }}>
-          {plan.charAt(0).toUpperCase() + plan.slice(1)}
+          {subState.label}{subState.expired ? " · skaduar" : ""}
         </span>
       </div>
+
+      {/* Përmbledhja: çfarë solli NearBuy këtë muaj */}
+      {isSubscribed && comparison && (
+        <div className="ov-summary">
+          <p className="ov-summary-title">Këtë muaj NearBuy të solli</p>
+          <p className="ov-summary-text">
+            <b>{comparison.thisMonth.views}</b> shikime të profilit dhe produkteve
+            {" · "}<b>{comparison.thisMonth.contacts}</b> klientë që të kontaktuan
+          </p>
+        </div>
+      )}
+
+      {/* Abonimi ka skaduar */}
+      {subState.expired && (
+        <div className="ov-banner ov-banner-red">
+          <span>⚠</span>
+          <div style={{ flex: 1 }}>
+            <p className="ov-banner-title" style={{ color: "#f87171" }}>
+              Abonimi {subState.label} skadoi{subState.endDate ? ` më ${formatDate(subState.endDate)}` : ""}
+            </p>
+            <p className="ov-banner-sub" style={{ color: "#a1a1aa" }}>
+              Produktet e tua nuk renditen më lart dhe statistikat janë të mbyllura. Rinovo që të mos humbasësh klientët.
+            </p>
+          </div>
+          {!(business.planStatus === "pending" && business.requestedPlan) && (
+            <button className="ov-renew-btn" disabled={requesting} onClick={() => handleRequestPlan(plan)}>
+              Rinovo {subState.label}
+            </button>
+          )}
+        </div>
+      )}
+      {!subState.expired && subState.active && subState.daysLeft !== null && subState.daysLeft <= 7 && (
+        <div className="ov-banner ov-banner-yellow">
+          <span>⏰</span>
+          <div>
+            <p className="ov-banner-title" style={{ color: "#f5c842" }}>Abonimi skadon për {subState.daysLeft} ditë</p>
+            <p className="ov-banner-sub" style={{ color: "#a1a1aa" }}>Rinovo që profili të mos ndalet.</p>
+          </div>
+        </div>
+      )}
 
       {/* Banners */}
       {!business.verified && (
@@ -217,7 +265,7 @@ export default function BusinessOverviewPage() {
           </div>
         </div>
       )}
-      {!isSubscribed && !business.requestedPlan && (
+      {!isSubscribed && !subState.expired && !(business.planStatus === "pending" && business.requestedPlan) && (
         <div className="ov-banner ov-banner-yellow">
           <span>🔒</span>
           <div>
@@ -240,14 +288,14 @@ export default function BusinessOverviewPage() {
           <span className="ov-stat-icon">👁</span>
           <div>
             <p className="ov-stat-val">{isSubscribed ? totalViews.toLocaleString() : "—"}</p>
-            <p className="ov-stat-label">Shikime</p>
+            <p className="ov-stat-label">Shikime gjithsej</p>
           </div>
         </div>
         <div className="ov-stat">
           <span className="ov-stat-icon">📞</span>
           <div>
             <p className="ov-stat-val">{isSubscribed ? totalContacts.toLocaleString() : "—"}</p>
-            <p className="ov-stat-label">Kontakte</p>
+            <p className="ov-stat-label">Kontakte gjithsej</p>
           </div>
         </div>
         {isAdvancedOrPro && (
@@ -255,7 +303,7 @@ export default function BusinessOverviewPage() {
             <span className="ov-stat-icon">🗺</span>
             <div>
               <p className="ov-stat-val">{totalMaps.toLocaleString()}</p>
-              <p className="ov-stat-label">Klikime Maps</p>
+              <p className="ov-stat-label">Klikime Maps (30 ditë)</p>
             </div>
           </div>
         )}
@@ -269,17 +317,17 @@ export default function BusinessOverviewPage() {
         <div className="ov-charts">
           <div className="ov-chart-card">
             <p className="ov-chart-title">👁 Shikime</p>
-            <p className="ov-chart-total">{totalViews.toLocaleString()}</p>
+            <p className="ov-chart-total">{sum14(viewsData).toLocaleString()}</p>
             <MiniChart data={viewsData} color="#a855f7" />
           </div>
           <div className="ov-chart-card">
             <p className="ov-chart-title">📞 Kontakte</p>
-            <p className="ov-chart-total">{totalContacts.toLocaleString()}</p>
+            <p className="ov-chart-total">{sum14(contactsData).toLocaleString()}</p>
             <MiniChart data={contactsData} color="#22c55e" />
           </div>
           <div className="ov-chart-card">
             <p className="ov-chart-title">🗺 Maps</p>
-            <p className="ov-chart-total">{totalMaps.toLocaleString()}</p>
+            <p className="ov-chart-total">{sum14(mapsData).toLocaleString()}</p>
             <MiniChart data={mapsData} color="#f5c842" />
           </div>
         </div>
@@ -357,7 +405,7 @@ export default function BusinessOverviewPage() {
       <div className="ov-section-title">Planet e abonimit</div>
       <div className="ov-plans">
         {PLANS.map(p => {
-          const isCurrentPlan = business.subscription === p.id && business.planStatus === "active";
+          const isCurrentPlan = subState.active && subState.plan === p.id;
           const isPending = business.requestedPlan === p.id && business.planStatus === "pending";
           return (
             <div key={p.id} className={`ov-plan ${isCurrentPlan ? "ov-plan-active" : ""}`}
@@ -409,6 +457,13 @@ export default function BusinessOverviewPage() {
         .ov-banner{display:flex;align-items:flex-start;gap:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:1rem}
         .ov-banner-blue{background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.2)}
         .ov-banner-yellow{background:rgba(245,200,66,0.06);border-color:rgba(245,200,66,0.2)}
+        .ov-banner-red{background:rgba(239,68,68,0.06);border-color:rgba(239,68,68,0.25);align-items:center;flex-wrap:wrap}
+        .ov-renew-btn{padding:0.55rem 1.1rem;background:#f97316;color:#fff;border:none;border-radius:10px;font-size:0.85rem;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+        .ov-renew-btn:disabled{opacity:0.5}
+        .ov-summary{background:linear-gradient(135deg,rgba(249,115,22,0.12),rgba(245,200,66,0.06));border:1px solid rgba(249,115,22,0.25);border-radius:14px;padding:1rem 1.25rem}
+        .ov-summary-title{font-size:0.75rem;font-weight:600;color:#f97316;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+        .ov-summary-text{font-size:1rem;color:#e4e4e7;line-height:1.5}
+        .ov-summary-text b{color:#fff;font-size:1.15rem}
         .ov-banner span:first-child{font-size:1.2rem;margin-top:1px}
         .ov-banner-title{font-size:0.875rem;font-weight:600;color:#fbbf24}
         .ov-banner-sub{font-size:0.78rem;color:#92400e;margin-top:2px}

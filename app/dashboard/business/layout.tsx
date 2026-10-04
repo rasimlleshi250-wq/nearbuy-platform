@@ -10,6 +10,7 @@ import { auth } from "@/lib/firebase/config";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { Business } from "@/types";
+import { getSubscriptionState, formatDate } from "@/lib/subscription";
 
 const NAV = [
   { href: "/dashboard/business", label: "Overview", icon: "⊞", exact: true },
@@ -63,8 +64,10 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
 
   const initials = profile?.displayName?.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "B";
 
-  const planColor = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
-  const plan = (business?.subscription || "basic") as keyof typeof planColor;
+  const planColor: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#71717a" };
+  const sub = getSubscriptionState(business as unknown as Record<string, unknown>);
+  // Kur plani ka skaduar, shfaqet gri — që të mos duket sikur është ende aktiv
+  const badgeColor = sub.expired ? "#71717a" : planColor[sub.plan] || "#71717a";
 
   return (
     <div className="biz-root">
@@ -81,21 +84,14 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
             <div>
               <span className="biz-brand-name">NearBuy<em>.al</em></span>
               {business && (
-                <span className="biz-plan-badge" style={{ background: `${planColor[plan]}22`, color: planColor[plan], borderColor: `${planColor[plan]}44` }}>
-                  {plan.charAt(0).toUpperCase() + plan.slice(1)}
+                <span className="biz-plan-badge" style={{ background: `${badgeColor}22`, color: badgeColor, borderColor: `${badgeColor}44` }}>
+                  {sub.label}
                 </span>
               )}
-              {business?.subscriptionEnd && (() => {
-                const end = business.subscriptionEnd instanceof Date
-                  ? business.subscriptionEnd
-                  : (business.subscriptionEnd as any).toDate?.() ?? new Date(business.subscriptionEnd as any);
-                const daysLeft = Math.ceil((end.getTime() - Date.now()) / 86400000);
-                const expired = daysLeft < 0;
-                const soon = daysLeft >= 0 && daysLeft <= 7;
-                const color = expired ? "#ef4444" : soon ? "#f97316" : "#71717a";
-                const label = expired
-                  ? "⚠ Skaduar"
-                  : `Deri ${end.toLocaleDateString("sq-AL", { day: "numeric", month: "short", year: "numeric" })}`;
+              {business && sub.plan !== "free" && sub.endDate && (() => {
+                const soon = !sub.expired && sub.daysLeft !== null && sub.daysLeft <= 7;
+                const color = sub.expired ? "#ef4444" : soon ? "#f97316" : "#71717a";
+                const label = sub.expired ? "⚠ Skaduar" : soon ? `Skadon për ${sub.daysLeft} ditë` : `Deri ${formatDate(sub.endDate)}`;
                 return (
                   <span className="biz-exp-badge" style={{ color, borderColor: `${color}33`, background: `${color}11` }}>
                     {label}
