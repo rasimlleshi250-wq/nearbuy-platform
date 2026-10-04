@@ -4,6 +4,7 @@ import {
   serverTimestamp, GeoPoint, limit, QueryConstraint
 } from "firebase/firestore";
 import { db } from "./config";
+import { buildSearchKeywords } from "@/lib/searchKeywords";
 import type {
   UserProfile, Product, Business, BusinessProduct,
   Professional, Category
@@ -73,6 +74,8 @@ export async function getProductById(id: string): Promise<Product | null> {
 export async function createProduct(data: Omit<Product, "id" | "createdAt" | "createdBy">, adminUID: string) {
   return await addDoc(collection(db, "products"), {
     ...data,
+    // Fjalët kyçe për kërkimin krijohen automatikisht nga emri dhe marka
+    searchKeywords: buildSearchKeywords(data.name, data.brand),
     createdBy: adminUID,
     status: "active",
     createdAt: serverTimestamp(),
@@ -80,10 +83,22 @@ export async function createProduct(data: Omit<Product, "id" | "createdAt" | "cr
 }
 
 export async function updateProduct(id: string, data: Partial<Product>) {
-  await updateDoc(doc(db, "products", id), {
-    ...data,
-    updatedAt: serverTimestamp(),
-  });
+  const update: Record<string, unknown> = { ...data, updatedAt: serverTimestamp() };
+
+  // Nëse ndryshon emri ose marka, rifreskojmë fjalët kyçe të kërkimit
+  if (data.name !== undefined || data.brand !== undefined) {
+    let name = data.name;
+    let brand = data.brand;
+    if (name === undefined || brand === undefined) {
+      const current = await getDoc(doc(db, "products", id));
+      const cur = current.exists() ? current.data() : {};
+      if (name === undefined) name = cur.name;
+      if (brand === undefined) brand = cur.brand;
+    }
+    update.searchKeywords = buildSearchKeywords(name, brand);
+  }
+
+  await updateDoc(doc(db, "products", id), update);
 }
 
 // ════════════════════════════════════════════
