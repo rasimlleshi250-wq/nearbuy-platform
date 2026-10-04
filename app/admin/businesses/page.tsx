@@ -1,14 +1,24 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc, where } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc, where, getCountFromServer } from "firebase/firestore";
+import { PLANS as PLAN_DEFS, PLAN_ORDER, normalizePlanId, getEffectivePlan } from "@/lib/plans";
+import { getSubscriptionState } from "@/lib/subscription";
 import { db } from "@/lib/firebase/config";
 import Link from "next/link";
 
-const PLAN_COLORS: Record<string, string> = {
-  free: "#71717a", basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316"
-};
-const PLANS = ["free", "basic", "advanced", "pro"];
+const PLANS: string[] = PLAN_ORDER;
+const planName = (id?: string) => PLAN_DEFS[normalizePlanId(id)].name;
+const planColor = (id?: string) => PLAN_DEFS[normalizePlanId(id)].color;
+const DURATIONS = [1, 3, 6, 12];
+
+// Data e mbarimit: nga sot (ose nga data aktuale nëse s'ka skaduar) + N muaj
+function addMonths(fromIso: string | undefined, months: number): string {
+  const base = fromIso && new Date(fromIso) > new Date() ? new Date(fromIso) : new Date();
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().split("T")[0];
+}
 const PAYMENT_METHODS = ["Cash", "Transfer Bankar", "Kartë", "Tjetër"];
 const CITIES = ["Tiranë","Durrës","Vlorë","Shkodër","Elbasan","Korçë","Fier","Berat","Lushnjë","Kavajë","Gjirokastër","Sarandë","Lezhë","Kukës","Pogradec","Peshkopi"];
 
@@ -52,20 +62,21 @@ export default function AdminBusinessesPage() {
   const [msgModal, setMsgModal] = useState<BizExtra | null>(null);
   const [msgText, setMsgText] = useState("");
   const [searchQ, setSearchQ] = useState("");
+  const [months, setMonths] = useState<Record<string, number>>({});
+  const [payMethod, setPayMethod] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const fetch = async () => {
       const q = query(collection(db, "businesses"), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
       const bizList = snap.docs.map(d => ({ id: d.id, ...d.data() } as BizExtra));
-      // Ngarko numrin e produkteve per cdo biznes
-      for (const biz of bizList) {
+      // Numri i produkteve për çdo biznes — paralelisht dhe me numërim (shumë më pak lexime)
+      await Promise.all(bizList.map(async biz => {
         try {
-          const pq = query(collection(db, "business_products"), where("businessId", "==", biz.id));
-          const psnap = await getDocs(pq);
-          biz.productCount = psnap.size;
+          const c = await getCountFromServer(query(collection(db, "business_products"), where("businessId", "==", biz.id)));
+          biz.productCount = c.data().count;
         } catch { biz.productCount = 0; }
-      }
+      }));
       setBusinesses(bizList);
       setLoading(false);
     };
@@ -79,34 +90,36 @@ export default function AdminBusinessesPage() {
     setActionLoading(null);
   };
 
-  const toggleFeatured = async (id: string, current: boolean) => {
-    setActionLoading(id + "_featured");
-    await updateDoc(doc(db, "businesses", id), { featured: !current });
-    setBusinesses(prev => prev.map(b => b.id === id ? { ...b, featured: !current } : b));
-    setActionLoading(null);
-  };
-
   const toggleBlocked = async (id: string, current: boolean) => {
     setActionLoading(id + "_block");
-    await updateDoc(doc(db, "businesses", id), { blocked: !current, verified: current ? false : undefined });
-    setBusinesses(prev => prev.map(b => b.id === id ? { ...b, blocked: !current } : b));
+    // Kur bllokohet, hiqet edhe aprovimi (Firestore nuk pranon vlera "undefined")
+    await updateDoc(doc(db, "businesses", id), current ? { blocked: false } : { blocked: true, verified: false });
+    setBusinesses(prev => prev.map(b => b.id === id ? { ...b, blocked: !current, verified: current ? b.verified : false } : b));
     setActionLoading(null);
   };
 
   const approvePlan = async (id: string, requestedPlan: string) => {
     setActionLoading(id + "_plan");
-    const now = new Date();
-    const endDate = new Date(now);
-    endDate.setMonth(endDate.getMonth() + 1);
+    const plan = normalizePlanId(requestedPlan);
+    const m = months[id] || 1;
+    const biz = businesses.find(b => b.id === id);
+    // Nëse po rinovon të njëjtën paketë pa skaduar, muajt shtohen pas datës aktuale
+    const samePlanActive = biz && normalizePlanId(biz.subscription) === plan && getSubscriptionState(biz as unknown as Record<string, unknown>).active;
+    const start = new Date().toISOString().split("T")[0];
+    const end = addMonths(samePlanActive ? biz?.subscriptionEnd : undefined, m);
+    const method = payMethod[id] || "Cash";
     await updateDoc(doc(db, "businesses", id), {
-      subscription: requestedPlan,
+      subscription: plan,
       planStatus: "active",
       requestedPlan: null,
-      subscriptionStart: now.toISOString().split("T")[0],
-      subscriptionEnd: endDate.toISOString().split("T")[0],
+      subscriptionStart: samePlanActive && biz?.subscriptionStart ? biz.subscriptionStart : start,
+      subscriptionEnd: end,
+      paymentMethod: method,
+      lastPayment: { plan, months: m, amountEur: PLAN_DEFS[plan].priceEur * m, method, date: start },
     });
     setBusinesses(prev => prev.map(b =>
-      b.id === id ? { ...b, subscription: requestedPlan as any, planStatus: "active", requestedPlan: undefined } : b
+      b.id === id ? { ...b, subscription: plan, planStatus: "active", requestedPlan: undefined, subscriptionEnd: end,
+        subscriptionStart: samePlanActive && b.subscriptionStart ? b.subscriptionStart : start, paymentMethod: method } : b
     ));
     setActionLoading(null);
   };
@@ -119,19 +132,26 @@ export default function AdminBusinessesPage() {
   };
 
   const renewSubscription = async (id: string, currentEnd?: string) => {
-    const base = currentEnd && new Date(currentEnd) > new Date() ? new Date(currentEnd) : new Date();
-    const newEnd = new Date(base);
-    newEnd.setMonth(newEnd.getMonth() + 1);
-    const newEndStr = newEnd.toISOString().split("T")[0];
-    await updateDoc(doc(db, "businesses", id), { subscriptionEnd: newEndStr });
-    setBusinesses(prev => prev.map(b => b.id === id ? { ...b, subscriptionEnd: newEndStr } : b));
+    const m = months[id] || 1;
+    const biz = businesses.find(b => b.id === id);
+    const plan = normalizePlanId(biz?.subscription);
+    const newEndStr = addMonths(currentEnd, m);
+    const method = payMethod[id] || biz?.paymentMethod || "Cash";
+    const today = new Date().toISOString().split("T")[0];
+    await updateDoc(doc(db, "businesses", id), {
+      subscriptionEnd: newEndStr,
+      planStatus: "active",
+      paymentMethod: method,
+      lastPayment: { plan, months: m, amountEur: PLAN_DEFS[plan].priceEur * m, method, date: today },
+    });
+    setBusinesses(prev => prev.map(b => b.id === id ? { ...b, subscriptionEnd: newEndStr, planStatus: "active", paymentMethod: method } : b));
   };
 
   const savePlanEdit = async () => {
     if (!editPlan) return;
     setActionLoading(editPlan.id + "_planedit");
     await updateDoc(doc(db, "businesses", editPlan.id), {
-      subscription: editPlanForm.plan,
+      subscription: normalizePlanId(editPlanForm.plan),
       subscriptionStart: editPlanForm.startDate,
       subscriptionEnd: editPlanForm.endDate,
       paymentMethod: editPlanForm.paymentMethod,
@@ -182,12 +202,15 @@ export default function AdminBusinessesPage() {
     if (filter === "blocked") return b.blocked;
     return true;
   }).filter(b => !cityFilter || b.city === cityFilter)
-    .filter(b => !planFilter || b.subscription === planFilter)
+    .filter(b => !planFilter || normalizePlanId(b.subscription) === planFilter)
     .filter(b => !searchQ || b.name?.toLowerCase().includes(searchQ.toLowerCase()) || b.phone?.includes(searchQ));
 
   const pendingVerif = businesses.filter(b => !b.verified && !b.blocked).length;
   const pendingPlans = businesses.filter(b => b.planStatus === "pending").length;
   const blockedCount = businesses.filter(b => b.blocked).length;
+  // Të ardhurat mujore nga paketat aktive (€)
+  const activePaid = businesses.map(b => getEffectivePlan(b as unknown as Record<string, unknown>)).filter(p => p.priceEur > 0);
+  const mrr = activePaid.reduce((n, p) => n + p.priceEur, 0);
 
   return (
     <div>
@@ -195,7 +218,8 @@ export default function AdminBusinessesPage() {
         <div className="adm-header-row">
           <div>
             <h1>Bizneset</h1>
-            <p>{businesses.length} gjithsej · {pendingVerif} aprovim · {pendingPlans} kërkesa plani{blockedCount > 0 ? ` · ${blockedCount} bllokuar` : ""}</p>
+            <p>{businesses.length} gjithsej · {pendingVerif} aprovim · {pendingPlans} kërkesa paketash{blockedCount > 0 ? ` · ${blockedCount} bllokuar` : ""}</p>
+            <p className="adm-mrr">💶 {activePaid.length} paketa aktive · <b>€{mrr}/muaj</b></p>
           </div>
           <button onClick={exportCSV} className="adm-btn-export">⬇ Eksporto CSV</button>
         </div>
@@ -226,7 +250,7 @@ export default function AdminBusinessesPage() {
           </select>
           <select className="adm-sel" value={planFilter} onChange={e => setPlanFilter(e.target.value)}>
             <option value="">Të gjitha planet</option>
-            {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
+            {PLANS.map(p => <option key={p} value={p}>{planName(p)}</option>)}
           </select>
         </div>
       </div>
@@ -253,8 +277,22 @@ export default function AdminBusinessesPage() {
             </thead>
             <tbody>
               {filtered.map(b => {
-                const pc = PLAN_COLORS[b.subscription] || "#71717a";
-                const rpc = PLAN_COLORS[b.requestedPlan||""] || "#71717a";
+                const st = getSubscriptionState(b as unknown as Record<string, unknown>);
+                const pc = st.expired ? "#71717a" : planColor(b.subscription);
+                const rpc = planColor(b.requestedPlan);
+                const eff = getEffectivePlan(b as unknown as Record<string, unknown>);
+                const durationSel = (
+                  <select className="adm-mini-sel" value={months[b.id] || 1}
+                    onChange={e => setMonths(p => ({ ...p, [b.id]: Number(e.target.value) }))}>
+                    {DURATIONS.map(d => <option key={d} value={d}>{d} muaj</option>)}
+                  </select>
+                );
+                const paySel = (
+                  <select className="adm-mini-sel" value={payMethod[b.id] || "Cash"}
+                    onChange={e => setPayMethod(p => ({ ...p, [b.id]: e.target.value }))}>
+                    {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                );
                 const hasPlanRequest = b.planStatus === "pending" && b.requestedPlan;
                 return (
                   <tr key={b.id} className={`${hasPlanRequest ? "tr-highlight" : ""} ${b.blocked ? "tr-blocked" : ""}`}>
@@ -273,9 +311,9 @@ export default function AdminBusinessesPage() {
                     <td>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                         <span className="adm-sub-badge" style={{ background: `${pc}18`, color: pc, borderColor: `${pc}40` }}>
-                          {b.subscription || "free"}
+                          {planName(b.subscription)}{st.expired ? " · skaduar" : ""}
                         </span>
-                        <button onClick={() => { setEditPlan(b); setEditPlanForm({ plan: b.subscription||"free", startDate: b.subscriptionStart||"", endDate: b.subscriptionEnd||"", paymentMethod: b.paymentMethod||"" }); }} className="adm-btn-edit-plan" title="Ndrysho planin">✏️</button>
+                        <button onClick={() => { setEditPlan(b); setEditPlanForm({ plan: normalizePlanId(b.subscription), startDate: b.subscriptionStart||"", endDate: b.subscriptionEnd||"", paymentMethod: b.paymentMethod||"" }); }} className="adm-btn-edit-plan" title="Ndrysho planin">✏️</button>
                       </div>
                     </td>
                     <td>
@@ -290,8 +328,12 @@ export default function AdminBusinessesPage() {
                               {!isExpired(b.subscriptionEnd) && isExpiringSoon(b.subscriptionEnd) && <span className="adm-warn-badge">Shpejt</span>}
                             </span>
                           </div>
-                          {b.subscription !== "free" && (
-                            <button onClick={() => renewSubscription(b.id, b.subscriptionEnd)} className="adm-btn-renew">↻ Rinovо</button>
+                          {normalizePlanId(b.subscription) !== "free" && !(b.planStatus === "pending" && b.requestedPlan) && (
+                            <div className="adm-renew-row">
+                              {durationSel}
+                              {paySel}
+                              <button onClick={() => renewSubscription(b.id, b.subscriptionEnd)} className="adm-btn-renew">↻ Rinovo</button>
+                            </div>
                           )}
                         </div>
                       ) : <span className="adm-text-muted" style={{fontSize:"0.78rem"}}>—</span>}
@@ -299,7 +341,10 @@ export default function AdminBusinessesPage() {
                     <td>
                       {hasPlanRequest ? (
                         <div className="adm-plan-request">
-                          <span className="adm-sub-badge" style={{ background: `${rpc}18`, color: rpc, borderColor: `${rpc}40` }}>{b.requestedPlan}</span>
+                          <span className="adm-sub-badge" style={{ background: `${rpc}18`, color: rpc, borderColor: `${rpc}40` }}>
+                            {planName(b.requestedPlan)} · €{PLAN_DEFS[normalizePlanId(b.requestedPlan)].priceEur * (months[b.id] || 1)}
+                          </span>
+                          <div className="adm-renew-row">{durationSel}{paySel}</div>
                           <div className="adm-plan-btns">
                             <button onClick={() => approvePlan(b.id, b.requestedPlan!)} disabled={actionLoading === b.id + "_plan"} className="adm-btn-approve">
                               {actionLoading === b.id + "_plan" ? "..." : "✓ Aprovo"}
@@ -317,10 +362,10 @@ export default function AdminBusinessesPage() {
                       </button>
                     </td>
                     <td>
-                      <button onClick={() => toggleFeatured(b.id, b.featured)} disabled={actionLoading === b.id + "_featured"}
-                        className={`adm-toggle-btn ${b.featured ? "on" : "off"}`}>
-                        {actionLoading === b.id + "_featured" ? "..." : b.featured ? "⭐ Po" : "— Jo"}
-                      </button>
+                      {/* Featured vjen automatikisht nga paketa Premium aktive */}
+                      <span className={`adm-toggle-btn ${eff.featured ? "on" : "off"}`} title="Automatik nga paketa Premium">
+                        {eff.featured ? "⭐ Po" : "— Jo"}
+                      </span>
                     </td>
                     <td>
                       <div className="adm-actions-cell">
@@ -356,7 +401,7 @@ export default function AdminBusinessesPage() {
               <div className="adm-detail-row"><span>Telefoni</span><strong>{selectedBiz.phone || "—"}</strong></div>
               <div className="adm-detail-row"><span>Kategoria</span><strong>{(selectedBiz as any).category || "—"}</strong></div>
               <div className="adm-detail-row"><span>Email</span><strong>{(selectedBiz as any).email || "—"}</strong></div>
-              <div className="adm-detail-row"><span>Plani</span><strong>{selectedBiz.subscription}</strong></div>
+              <div className="adm-detail-row"><span>Paketa</span><strong>{planName(selectedBiz.subscription)}</strong></div>
               <div className="adm-detail-row"><span>Filloi</span><strong>{selectedBiz.subscriptionStart || "—"}</strong></div>
               <div className="adm-detail-row"><span>Mbaron</span><strong>{selectedBiz.subscriptionEnd || "—"}</strong></div>
               <div className="adm-detail-row"><span>Pagesa</span><strong>{selectedBiz.paymentMethod || "—"}</strong></div>
@@ -383,7 +428,7 @@ export default function AdminBusinessesPage() {
               <div className="adm-form-field">
                 <label>Plani</label>
                 <select value={editPlanForm.plan} onChange={e => setEditPlanForm(p => ({...p, plan: e.target.value}))}>
-                  {PLANS.map(pl => <option key={pl} value={pl}>{pl}</option>)}
+                  {PLANS.map(pl => <option key={pl} value={pl}>{planName(pl)} {PLAN_DEFS[normalizePlanId(pl)].priceEur ? `(€${PLAN_DEFS[normalizePlanId(pl)].priceEur})` : ""}</option>)}
                 </select>
               </div>
               <div className="adm-form-field">
@@ -468,11 +513,15 @@ export default function AdminBusinessesPage() {
         .adm-biz-pay{font-size:0.7rem;color:#52525b;margin-top:1px}
         .adm-blocked-tag{font-size:0.62rem;font-weight:700;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)}
         .adm-text-muted{font-size:0.85rem;color:#71717a}
-        .adm-sub-badge{font-size:0.72rem;font-weight:600;padding:3px 8px;border-radius:6px;text-transform:capitalize;border:1px solid}
+        .adm-sub-badge{font-size:0.72rem;font-weight:600;padding:3px 8px;border-radius:6px;text-transform:none;border:1px solid}
         .adm-btn-edit-plan{background:none;border:none;cursor:pointer;font-size:0.8rem;opacity:0.5;padding:2px;transition:opacity .2s}
         .adm-btn-edit-plan:hover{opacity:1}
         .adm-plan-request{display:flex;flex-direction:column;gap:6px}
         .adm-plan-btns{display:flex;gap:5px}
+        .adm-renew-row{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:4px}
+        .adm-mini-sel{background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e4e4e7;font-size:0.72rem;padding:3px 4px;font-family:inherit}
+        .adm-mrr{font-size:0.82rem;color:#a1a1aa;margin-top:4px}
+        .adm-mrr b{color:#22c55e}
         .adm-btn-approve{padding:4px 10px;border-radius:6px;border:1px solid rgba(34,197,94,0.3);background:rgba(34,197,94,0.1);color:#22c55e;font-size:0.75rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s}
         .adm-btn-approve:hover:not(:disabled){background:rgba(34,197,94,0.2)}
         .adm-btn-approve:disabled,.adm-btn-reject:disabled{opacity:0.5;cursor:not-allowed}
