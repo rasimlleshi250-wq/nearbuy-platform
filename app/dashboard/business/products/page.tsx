@@ -4,6 +4,24 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { searchWords, matchesAllWords } from "@/lib/searchKeywords";
+import { extractWords } from "@/lib/productMatcher";
+import ExcelImport from "./ExcelImport";
+
+interface ProductRequest {
+  id: string;
+  name: string;
+  price?: number;
+  status: "pending" | "approved" | "merged" | "rejected";
+  createdAt?: { seconds: number };
+}
+
+const REQUEST_STATUS: Record<string, { label: string; cls: string }> = {
+  pending:  { label: "⏳ Në shqyrtim", cls: "pending" },
+  approved: { label: "✓ U shtua",      cls: "ok" },
+  merged:   { label: "✓ U lidh",       cls: "ok" },
+  rejected: { label: "✗ Refuzuar",     cls: "no" },
+};
 
 interface MyProduct {
   id: string; // business_products doc id
@@ -25,11 +43,15 @@ interface CatalogProduct {
   images?: string[];
   description?: string;
   brand?: string;
+  barcode?: string;
+  status?: string;
 }
 
 export default function BusinessProductsPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<"mine" | "add">("mine");
+  const [tab, setTab] = useState<"mine" | "add" | "excel">("mine");
+  const [businessName, setBusinessName] = useState("");
+  const [requests, setRequests] = useState<ProductRequest[]>([]);
   const [myProducts, setMyProducts] = useState<MyProduct[]>([]);
   const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,39 +69,48 @@ export default function BusinessProductsPage() {
       try {
         // Gjej businessId
         let bid = user.uid;
+        let bizData: Record<string, unknown> | undefined;
         const bizSnap = await getDoc(doc(db, "businesses", user.uid));
-        if (!bizSnap.exists()) {
+        if (bizSnap.exists()) bizData = bizSnap.data();
+        else {
           const q1 = query(collection(db, "businesses"), where("ownerUID", "==", user.uid));
           const s1 = await getDocs(q1);
-          if (!s1.empty) bid = s1.docs[0].id;
+          if (!s1.empty) { bid = s1.docs[0].id; bizData = s1.docs[0].data(); }
           else {
             const q2 = query(collection(db, "businesses"), where("uid", "==", user.uid));
             const s2 = await getDocs(q2);
-            if (!s2.empty) bid = s2.docs[0].id;
+            if (!s2.empty) { bid = s2.docs[0].id; bizData = s2.docs[0].data(); }
           }
         }
         setBusinessId(bid);
+        setBusinessName(String(bizData?.name || bizData?.businessName || ""));
 
-        // Ngarko produktet e mia
-        await loadMyProducts(bid);
-
-        // Ngarko katalogun
+        // Ngarko katalogun një herë — përdoret edhe për emrat/fotot e produkteve të mia
         const catSnap = await getDocs(collection(db, "products"));
-        setCatalog(catSnap.docs.map(d => ({ id: d.id, ...d.data() } as CatalogProduct)));
+        const cat = catSnap.docs.map(d => ({ id: d.id, ...d.data() } as CatalogProduct));
+        setCatalog(cat);
+
+        // Ngarko produktet e mia dhe kërkesat
+        await Promise.all([loadMyProducts(bid, cat), loadRequests(bid)]);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
     init();
   }, [user]);
 
-  const loadMyProducts = async (bid: string) => {
+  const loadMyProducts = async (bid: string, cat: CatalogProduct[] = catalog) => {
     const q = query(collection(db, "business_products"), where("businessId", "==", bid));
     const snap = await getDocs(q);
+    const byId = new Map(cat.map(c => [c.id, c] as [string, CatalogProduct]));
     const prods: MyProduct[] = [];
     for (const d of snap.docs) {
       const data = d.data();
       let name = "", image = "", category = "";
-      if (data.productId) {
+      const known = data.productId ? byId.get(data.productId) : undefined;
+      if (known) {
+        // Nga katalogu që kemi ngarkuar tashmë — pa lexime shtesë
+        name = known.name; image = known.images?.[0] || ""; category = known.category;
+      } else if (data.productId) {
         try {
           const ps = await getDoc(doc(db, "products", data.productId));
           if (ps.exists()) { name = ps.data().name; image = ps.data().images?.[0] || ""; category = ps.data().category; }
@@ -88,6 +119,15 @@ export default function BusinessProductsPage() {
       prods.push({ id: d.id, productId: data.productId, name, image, category, price: data.price || 0, inStock: data.inStock ?? true, offerPrice: data.offerPrice, offerEnd: data.offerEnd, featured: data.featured });
     }
     setMyProducts(prods);
+  };
+
+  const loadRequests = async (bid: string) => {
+    try {
+      const snap = await getDocs(query(collection(db, "product_requests"), where("businessId", "==", bid)));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ProductRequest));
+      list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setRequests(list);
+    } catch (e) { console.error(e); }
   };
 
   const openEdit = (p: MyProduct) => {
@@ -162,10 +202,15 @@ export default function BusinessProductsPage() {
     setTimeout(() => setSuccessMsg(""), 3000);
   };
 
-  const filteredCatalog = catalog.filter(c =>
-    !catalogSearch.trim() ||
-    c.name?.toLowerCase().includes(catalogSearch.toLowerCase()) ||
-    c.category?.toLowerCase().includes(catalogSearch.toLowerCase())
+  // Kërkim si në faqen publike (pa dalluar shkronja të mëdha, ë/e), vetëm produktet aktive,
+  // dhe maksimumi 50 rezultate që faqja të mos rëndohet
+  const activeCatalog = catalog.filter(c => (c.status || "active") === "active");
+  const searchTerms = searchWords(catalogSearch);
+  const filteredCatalog = searchTerms.length === 0 ? [] : activeCatalog
+    .filter(c => matchesAllWords(`${c.name} ${c.brand || ""} ${c.category || ""}`, searchTerms))
+    .slice(0, 50);
+  const pendingRequestNames = new Set(
+    requests.filter(r => r.status === "pending").map(r => extractWords(r.name).join(" "))
   );
 
   const addedIds = new Set(myProducts.map(p => p.productId));
@@ -197,7 +242,41 @@ export default function BusinessProductsPage() {
         <button onClick={() => setTab("add")} className={`pr-tab ${tab === "add" ? "active" : ""}`}>
           ➕ Shto produkt
         </button>
+        <button onClick={() => setTab("excel")} className={`pr-tab ${tab === "excel" ? "active" : ""}`}>
+          📥 Ngarko me Excel
+        </button>
       </div>
+
+      {/* Tab: Excel */}
+      {tab === "excel" && businessId && (
+        <>
+          <ExcelImport
+            businessId={businessId}
+            businessName={businessName}
+            catalog={activeCatalog}
+            linkedProductIds={addedIds}
+            pendingRequestNames={pendingRequestNames}
+            onDone={() => { loadMyProducts(businessId); loadRequests(businessId); }}
+          />
+          {requests.length > 0 && (
+            <div className="pr-req">
+              <h3 className="pr-req-title">Kërkesat e mia ({requests.length})</h3>
+              <p className="pr-req-sub">Produkte që nuk i kishim në katalog. Kur shtohen, dalin automatikisht te "Produktet e mia".</p>
+              <div className="pr-req-list">
+                {requests.slice(0, 100).map(r => (
+                  <div key={r.id} className="pr-req-item">
+                    <span className="pr-req-name">{r.name}</span>
+                    <span className="pr-req-right">
+                      {r.price ? <span className="pr-req-price">{r.price.toLocaleString()} L</span> : null}
+                      <span className={`pr-req-status ${REQUEST_STATUS[r.status]?.cls || ""}`}>{REQUEST_STATUS[r.status]?.label || r.status}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Tab: Produktet e mia */}
       {tab === "mine" && (
@@ -205,7 +284,7 @@ export default function BusinessProductsPage() {
           <div className="pr-empty">
             <span className="pr-empty-icon">🛍</span>
             <p className="pr-empty-title">Nuk ke produkte ende</p>
-            <p className="pr-empty-sub">Shko te "Shto produkt" për të zgjedhur nga katalogu.</p>
+            <p className="pr-empty-sub">Shko te "Shto produkt" për të zgjedhur nga katalogu, ose ngarko të gjitha njëherësh me Excel.</p>
             <button onClick={() => setTab("add")} className="pr-empty-btn">➕ Shto produktin e parë</button>
           </div>
         ) : (
@@ -299,11 +378,18 @@ export default function BusinessProductsPage() {
           <input type="text" placeholder="🔍 Kërko produkt nga katalogu..." value={catalogSearch}
             onChange={e => setCatalogSearch(e.target.value)} className="pr-cat-search" />
 
-          {filteredCatalog.length === 0 ? (
+          {searchTerms.length === 0 ? (
+            <div className="pr-empty">
+              <span className="pr-empty-icon">🔍</span>
+              <p className="pr-empty-title">Kërko produktin që shet</p>
+              <p className="pr-empty-sub">Shkruaj emrin, p.sh. "silikon" ose "celes 13". Për shumë produkte njëherësh, përdor "Ngarko me Excel".</p>
+              <button onClick={() => setTab("excel")} className="pr-empty-btn">📥 Ngarko me Excel</button>
+            </div>
+          ) : filteredCatalog.length === 0 ? (
             <div className="pr-empty">
               <span className="pr-empty-icon">📦</span>
               <p className="pr-empty-title">Nuk u gjet asnjë produkt</p>
-              <p className="pr-empty-sub">Katalogu është bosh ose kërkimi nuk ka rezultate.</p>
+              <p className="pr-empty-sub">Nëse produkti nuk është në katalog, shtoje me "Ngarko me Excel" dhe na vjen si kërkesë.</p>
             </div>
           ) : (
             <div className="pr-catalog">
@@ -456,6 +542,18 @@ export default function BusinessProductsPage() {
         .pr-cat-price-v2{padding:0.5rem 0.7rem;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#f4f4f5;font-size:0.82rem;outline:none;font-family:inherit;width:110px}
         .pr-cat-price-v2:focus{border-color:rgba(249,115,22,0.4)}
         .pr-cat-form-checks{display:flex;flex-direction:column;gap:6px}
+        .pr-req{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:1rem;display:flex;flex-direction:column;gap:8px}
+        .pr-req-title{font-size:0.95rem;font-weight:700;color:#e4e4e7}
+        .pr-req-sub{font-size:0.78rem;color:#71717a}
+        .pr-req-list{display:flex;flex-direction:column;gap:4px;max-height:320px;overflow-y:auto}
+        .pr-req-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:0.5rem 0.6rem;border-radius:8px;background:rgba(255,255,255,0.02)}
+        .pr-req-name{font-size:0.82rem;color:#d4d4d8}
+        .pr-req-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+        .pr-req-price{font-size:0.78rem;color:#a1a1aa}
+        .pr-req-status{font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.06);color:#a1a1aa}
+        .pr-req-status.pending{background:rgba(245,200,66,0.1);color:#f5c842}
+        .pr-req-status.ok{background:rgba(34,197,94,0.1);color:#22c55e}
+        .pr-req-status.no{background:rgba(239,68,68,0.1);color:#f87171}
         @media(max-width:600px){.pr-item{flex-direction:column}.pr-edit-row{grid-template-columns:1fr}.pr-cat-form{width:100%}.pr-cat-price{width:80px}.pr-cat-form-row{flex-direction:column}.pr-offer-row{grid-template-columns:1fr}}
       `}</style>
     </div>
