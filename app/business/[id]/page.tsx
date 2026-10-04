@@ -27,6 +27,7 @@ interface Business {
 
 interface Product {
   id: string;
+  productId: string;
   name: string;
   category: string;
   image?: string;
@@ -34,6 +35,24 @@ interface Product {
   inStock: boolean;
   offerPrice?: number;
   offerEnd?: string;
+}
+
+// Abonimi aktiv? Kontrollon fushën e skadencës nëse ekziston (Timestamp, datë ose tekst)
+function isSubscriptionActive(b: Record<string, unknown>): boolean {
+  const raw = b.subscriptionEnd ?? b.subscriptionExpiry ?? b.subscriptionExpires ?? b.planExpiry ?? b.expiresAt;
+  if (!raw) return true;
+  const t = raw as { toDate?: () => Date; seconds?: number };
+  const end = typeof t.toDate === "function" ? t.toDate()
+    : typeof t.seconds === "number" ? new Date(t.seconds * 1000)
+    : new Date(String(raw));
+  return isNaN(end.getTime()) || end.getTime() > Date.now();
+}
+
+// Oferta vlen vetëm nëse nuk ka kaluar data e mbarimit
+function offerIsActive(offerEnd?: string): boolean {
+  if (!offerEnd) return true;
+  const end = new Date(offerEnd + "T23:59:59");
+  return isNaN(end.getTime()) || end.getTime() >= Date.now();
 }
 
 export default function BusinessPublicPage() {
@@ -50,7 +69,10 @@ export default function BusinessPublicPage() {
       try {
         const snap = await getDoc(doc(db, "businesses", bizId));
         if (!snap.exists() || !snap.data().verified) { setNotFound(true); setLoading(false); return; }
-        const biz = { id: snap.id, ...snap.data() } as Business;
+        const raw = snap.data();
+        const biz = { id: snap.id, ...raw } as Business;
+        // "Featured" shfaqet vetëm kur abonimi është aktiv
+        biz.featured = !!raw.featured && isSubscriptionActive(raw);
         setBusiness(biz);
 
         // Gjurmo shikimin
@@ -59,20 +81,27 @@ export default function BusinessPublicPage() {
         // Ngarko produktet
         const pq = query(collection(db, "business_products"), where("businessId", "==", bizId));
         const psnap = await getDocs(pq);
-        const prods: Product[] = [];
-        for (const d of psnap.docs) {
+        // Produktet ngarkohen paralelisht (më shpejt), dhe anashkalohen ato
+        // që janë fshirë ose çaktivizuar nga katalogu
+        const results = await Promise.all(psnap.docs.map(async d => {
           const data = d.data();
-          let name = "", image = "", category = "";
-          if (data.productId) {
-            try {
-              const ps = await getDoc(doc(db, "products", data.productId));
-              if (ps.exists()) { name = ps.data().name; image = ps.data().images?.[0] || ""; category = ps.data().category; }
-            } catch {}
-          }
-          if (data.inStock !== false) {
-            prods.push({ id: d.id, name, image, category, price: data.price || 0, inStock: data.inStock ?? true, offerPrice: data.offerPrice || undefined, offerEnd: data.offerEnd || undefined });
-          }
-        }
+          if (!data.productId || data.inStock === false) return null;
+          try {
+            const ps = await getDoc(doc(db, "products", data.productId));
+            if (!ps.exists()) return null;
+            const pd = ps.data();
+            if ((pd.status || "active") !== "active" || !pd.name) return null;
+            const offerActive = !!data.offerPrice && data.offerPrice < (data.price || 0) && offerIsActive(data.offerEnd);
+            return {
+              id: d.id, productId: data.productId, name: pd.name, image: pd.images?.[0] || "", category: pd.category || "",
+              price: data.price || 0, inStock: data.inStock ?? true,
+              offerPrice: offerActive ? data.offerPrice : undefined,
+              offerEnd: offerActive ? data.offerEnd || undefined : undefined,
+            } as Product;
+          } catch { return null; }
+        }));
+        const prods = results.filter((p): p is Product => p !== null);
+        prods.sort((a, b) => a.name.localeCompare(b.name, "sq"));
         setProducts(prods);
       } catch (e) { console.error(e); setNotFound(true); }
       finally { setLoading(false); }
@@ -189,7 +218,7 @@ export default function BusinessPublicPage() {
             <h2 className="biz-pub-section-title">🏷 Ofertat aktive</h2>
             <div className="biz-pub-products-grid">
               {products.filter(p => p.offerPrice).map(p => (
-                <div key={p.id} className="biz-pub-product biz-pub-product-offer">
+                <Link key={p.id} href={`/products/${p.productId}`} className="biz-pub-product biz-pub-product-offer">
                   <div className="biz-pub-offer-badge">OFERTË</div>
                   <div className="biz-pub-prod-img">
                     {p.image ? <img src={p.image} alt={p.name} /> : <span>📦</span>}
@@ -204,7 +233,7 @@ export default function BusinessPublicPage() {
                     </div>
                     {p.offerEnd && <p className="biz-pub-offer-end">Deri më {p.offerEnd}</p>}
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </>
@@ -216,7 +245,7 @@ export default function BusinessPublicPage() {
             <h2 className="biz-pub-section-title">🛍 Produktet</h2>
             <div className="biz-pub-products-grid">
               {products.map(p => (
-                <div key={p.id} className="biz-pub-product">
+                <Link key={p.id} href={`/products/${p.productId}`} className="biz-pub-product">
                   <div className="biz-pub-prod-img">
                     {p.image ? <img src={p.image} alt={p.name} /> : <span>📦</span>}
                   </div>
@@ -237,7 +266,7 @@ export default function BusinessPublicPage() {
                       {p.inStock ? "✓ Në stok" : "✗ Jashtë stoku"}
                     </span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </>
@@ -309,7 +338,7 @@ export default function BusinessPublicPage() {
         .biz-pub-hours{color:#e4e4e7;font-weight:600}
         .biz-pub-section-title{font-size:1rem;font-weight:700;color:#fff;letter-spacing:-0.01em}
         .biz-pub-products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
-        .biz-pub-product{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;transition:border-color .2s,transform .2s;position:relative}
+        .biz-pub-product{display:block;text-decoration:none;color:inherit;cursor:pointer;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;transition:border-color .2s,transform .2s;position:relative}
         .biz-pub-product:hover{border-color:rgba(249,115,22,0.3);transform:translateY(-2px)}
         .biz-pub-product-offer{border-color:rgba(245,200,66,0.2);background:rgba(245,200,66,0.02)}
         .biz-pub-offer-badge{position:absolute;top:8px;left:8px;background:#f5c842;color:#0a0a0a;font-size:0.65rem;font-weight:800;padding:3px 8px;border-radius:4px;letter-spacing:0.05em}
