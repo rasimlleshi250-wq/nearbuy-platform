@@ -37,6 +37,10 @@ interface Professional {
   pricePerHour?: number;
 }
 
+// Adresat e profileve publike — ndrysho këtu nëse dosjet quhen ndryshe
+const BUSINESS_URL = (id: string) => `/business/${id}`;
+const PROFESSIONAL_URL = (id: string) => `/professionals/${id}`;
+
 const CATEGORIES = [
   { name: "Hidraulikë", icon: "🔧" },
   { name: "Elektrik", icon: "⚡" },
@@ -180,7 +184,7 @@ export default function HomePage() {
           ) : (
             <div className="nb-prod-grid">
               {products.map(p => (
-                <Link key={p.id} href={`/products?category=${encodeURIComponent(p.category)}`} className="nb-prod-card">
+                <Link key={p.id} href={`/products/${p.id}`} className="nb-prod-card">
                   <div className="nb-prod-img">
                     {p.images?.[0] ? <img src={p.images[0]} alt={p.name} /> : <span>📦</span>}
                   </div>
@@ -212,7 +216,7 @@ export default function HomePage() {
           ) : (
             <div className="nb-biz-grid">
               {businesses.map(b => (
-                <div key={b.id} className="nb-biz-card">
+                <Link key={b.id} href={BUSINESS_URL(b.id)} className="nb-biz-card">
                   {b.featured && <div className="nb-featured-badge">⭐ Featured</div>}
                   <div className="nb-biz-logo">{b.logo ? <img src={b.logo} alt={b.name} /> : <span>🏪</span>}</div>
                   <div>
@@ -221,7 +225,7 @@ export default function HomePage() {
                     <p className="nb-biz-city">📍 {b.city}</p>
                   </div>
                   <div className="nb-biz-footer"><span className="nb-verified">✓ Verifikuar</span></div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -265,7 +269,7 @@ export default function HomePage() {
           ) : (
             <div className="nb-pro-grid">
               {professionals.map(p => (
-                <div key={p.id} className="nb-pro-card">
+                <Link key={p.id} href={PROFESSIONAL_URL(p.id)} className="nb-pro-card">
                   {p.featured && <div className="nb-featured-badge nb-featured-pro">⭐ Featured</div>}
                   <div className="nb-pro-photo">{p.photo ? <img src={p.photo} alt={p.name} /> : <span>👤</span>}</div>
                   <div>
@@ -275,7 +279,7 @@ export default function HomePage() {
                     {p.pricePerHour && <p className="nb-pro-price">{p.pricePerHour.toLocaleString()} L/orë</p>}
                   </div>
                   <div className="nb-pro-footer"><span className="nb-verified nb-verified-pro">✓ Verifikuar</span></div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -353,7 +357,7 @@ export default function HomePage() {
         .nb-cat-icon{font-size:2.25rem}
         .nb-cat-name{font-size:0.875rem;font-weight:600;color:#374151}
         .nb-biz-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-        .nb-biz-card{position:relative;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+        .nb-biz-card{text-decoration:none;color:inherit;cursor:pointer;position:relative;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
         .nb-biz-card:hover{border-color:#f97316;transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.1)}
         .nb-featured-badge{position:absolute;top:10px;right:10px;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(245,200,66,0.15);color:#f5c842;border:1px solid rgba(245,200,66,0.3)}
         .nb-featured-pro{background:rgba(192,132,252,0.15);color:#c084fc;border-color:rgba(192,132,252,0.3)}
@@ -373,7 +377,7 @@ export default function HomePage() {
         .nb-how-desc{font-size:0.82rem;color:#6b7280;line-height:1.6}
         .nb-how-arrow{position:absolute;right:-20px;top:50%;transform:translateY(-50%);font-size:1.2rem;color:#52525b;z-index:1}
         .nb-pro-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-        .nb-pro-card{position:relative;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+        .nb-pro-card{text-decoration:none;color:inherit;cursor:pointer;position:relative;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
         .nb-pro-card:hover{border-color:#a855f7;transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.1)}
         .nb-pro-photo{width:52px;height:52px;border-radius:50%;background:rgba(192,132,252,0.1);border:1.5px solid rgba(192,132,252,0.2);display:flex;align-items:center;justify-content:center;font-size:1.5rem;overflow:hidden}
         .nb-pro-photo img{width:100%;height:100%;object-fit:cover}
