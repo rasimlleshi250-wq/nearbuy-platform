@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query } from "firebase/firestore";
+import { collection, getDocs, addDoc, deleteDoc, doc, orderBy, query, where, getCountFromServer } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
 import { Category } from "@/types";
 
@@ -23,6 +23,7 @@ export default function AdminCategoriesPage() {
   const [form, setForm] = useState({ name: "", icon: "🛍" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const fetchCategories = async () => {
     const q = query(collection(db, "categories"), orderBy("order", "asc"));
@@ -52,13 +53,16 @@ export default function AdminCategoriesPage() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { setError("Emri është i detyrueshëm."); return; }
+    if (categories.some(c => c.name.toLowerCase() === form.name.trim().toLowerCase())) {
+      setError("Kjo kategori ekziston tashmë."); return;
+    }
     setSaving(true);
     setError("");
     try {
       await addDoc(collection(db, "categories"), {
         name: form.name.trim(),
         icon: form.icon,
-        order: categories.length,
+        order: categories.length + 1,
       });
       setForm({ name: "", icon: "🛍" });
       setShowForm(false);
@@ -70,10 +74,33 @@ export default function AdminCategoriesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Fshi këtë kategori?")) return;
-    await deleteDoc(doc(db, "categories", id));
-    setCategories(prev => prev.filter(c => c.id !== id));
+  // Fshirja lejohet VETËM kur kategoria nuk ka produkte dhe nënkategori.
+  // Përndryshe mijëra produkte do mbeteshin pa kategori.
+  const handleDelete = async (c: Category) => {
+    setDeleting(c.id);
+    try {
+      const [prods, subs] = await Promise.all([
+        getCountFromServer(query(collection(db, "products"), where("category", "==", c.name))),
+        getCountFromServer(query(collection(db, "subcategories"), where("categoryName", "==", c.name))),
+      ]);
+      const nProds = prods.data().count, nSubs = subs.data().count;
+      if (nProds > 0 || nSubs > 0) {
+        alert(
+          `"${c.name}" nuk mund të fshihet.\n\n` +
+          `Ka ${nProds.toLocaleString()} produkte dhe ${nSubs} nënkategori.\n` +
+          `Zhvendosi ose fshiji ato më parë.`
+        );
+        return;
+      }
+      if (!confirm(`Fshi kategorinë "${c.name}"? Nuk ka produkte, kështu që nuk preket asgjë tjetër.`)) return;
+      await deleteDoc(doc(db, "categories", c.id));
+      setCategories(prev => prev.filter(x => x.id !== c.id));
+    } catch (e) {
+      console.error(e);
+      alert("Kontrolli dështoi. Provo përsëri.");
+    } finally {
+      setDeleting(null);
+    }
   };
 
   return (
@@ -148,7 +175,10 @@ export default function AdminCategoriesPage() {
                 <p className="adm-cat-name">{c.name}</p>
                 <p className="adm-cat-order">Rendi: {c.order}</p>
               </div>
-              <button onClick={() => handleDelete(c.id)} className="adm-cat-delete">✕</button>
+              <button onClick={() => handleDelete(c)} disabled={deleting === c.id} className="adm-cat-delete"
+                title="Fshi (vetëm nëse nuk ka produkte)">
+                {deleting === c.id ? "…" : "✕"}
+              </button>
             </div>
           ))}
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, where, getCountFromServer, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
 
 interface Subcategory {
@@ -19,7 +19,7 @@ const DEFAULT_SUBCATEGORIES: Omit<Subcategory, "id">[] = [
   { name: "Rubineta Banjo", categoryName: "Hidraulikë", order: 2 },
   { name: "Tuba & Fitingje", categoryName: "Hidraulikë", order: 3 },
   { name: "Pompa Uji", categoryName: "Hidraulikë", order: 4 },
-  { name: "Motopompa & Gjeneratorë", categoryName: "Hidraulikë", order: 5 },
+  { name: "Motopompa", categoryName: "Hidraulikë", order: 5 },
   { name: "Vana & Çifte", categoryName: "Hidraulikë", order: 6 },
   { name: "Kazanë Uji", categoryName: "Hidraulikë", order: 7 },
   { name: "Aksesorë Banjo", categoryName: "Hidraulikë", order: 8 },
@@ -29,13 +29,14 @@ const DEFAULT_SUBCATEGORIES: Omit<Subcategory, "id">[] = [
   { name: "Prozhektor", categoryName: "Elektrik", order: 2 },
   { name: "Spot & Lustër", categoryName: "Elektrik", order: 3 },
   { name: "Çelësa & Prize", categoryName: "Elektrik", order: 4 },
-  { name: "Kabllo & Tuba", categoryName: "Elektrik", order: 5 },
+  { name: "Kabllo & Gofrato", categoryName: "Elektrik", order: 5 },
   { name: "Panele & Siguresa", categoryName: "Elektrik", order: 6 },
   { name: "Vegla Elektrike", categoryName: "Elektrik", order: 7 },
   { name: "Aksesorë Elektrik", categoryName: "Elektrik", order: 8 },
+  { name: "Gjeneratorë", categoryName: "Elektrik", order: 9 },
   // Ndërtim
   { name: "Vegla Dore", categoryName: "Ndërtim", order: 1 },
-  { name: "Aksesore Veglaesh", categoryName: "Ndërtim", order: 2 },
+  { name: "Aksesorë Veglash", categoryName: "Ndërtim", order: 2 },
   { name: "Makineri Ndërtimi", categoryName: "Ndërtim", order: 3 },
   { name: "Saldim & Prerje", categoryName: "Ndërtim", order: 4 },
   { name: "Fiksim & Bulloneri", categoryName: "Ndërtim", order: 5 },
@@ -61,8 +62,13 @@ const DEFAULT_SUBCATEGORIES: Omit<Subcategory, "id">[] = [
   { name: "Sharra Zinxhiri", categoryName: "Kopshtari", order: 2 },
   { name: "Vegla Kopshtarie", categoryName: "Kopshtari", order: 3 },
   { name: "Ujitje & Zorre", categoryName: "Kopshtari", order: 4 },
-  { name: "Aksesore Kopshtarie & Pyjore", categoryName: "Kopshtari", order: 5 },
+  { name: "Aksesorë Kopshtarie & Pyjore", categoryName: "Kopshtari", order: 5 },
 ];
+
+// Sa produkte e përdorin këtë nënkategori
+const countProducts = async (categoryName: string, name: string) =>
+  (await getCountFromServer(query(collection(db, "products"),
+    where("category", "==", categoryName), where("subcategory", "==", name)))).data().count;
 
 export default function AdminSubcategoriesPage() {
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
@@ -73,6 +79,7 @@ export default function AdminSubcategoriesPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState("");
 
   useEffect(() => {
     loadSubcategories();
@@ -95,19 +102,23 @@ export default function AdminSubcategoriesPage() {
         await addDoc(collection(db, "subcategories"), sub);
       }
       await loadSubcategories();
-      alert("✓ Të 50 nënkategoritë u shtuan me sukses!");
+      alert(`✓ Të ${DEFAULT_SUBCATEGORIES.length} nënkategoritë u shtuan me sukses!`);
     } catch (e) { console.error(e); alert("Gabim gjatë shtimit."); }
     finally { setSeeding(false); }
   };
 
   const addSubcategory = async () => {
-    if (!addForm.name.trim()) return;
+    const name = addForm.name.trim();
+    if (!name) return;
+    if (subcategories.some(s => s.categoryName === activeTab && s.name.toLowerCase() === name.toLowerCase())) {
+      alert("Kjo nënkategori ekziston tashmë."); return;
+    }
     setSaving(true);
     try {
-      const existing = subcategories.filter(s => s.categoryName === addForm.categoryName);
+      const existing = subcategories.filter(s => s.categoryName === activeTab);
       await addDoc(collection(db, "subcategories"), {
-        name: addForm.name.trim(),
-        categoryName: addForm.categoryName,
+        name,
+        categoryName: activeTab,
         order: existing.length + 1,
       });
       setAddForm(p => ({ ...p, name: "" }));
@@ -116,23 +127,47 @@ export default function AdminSubcategoriesPage() {
     finally { setSaving(false); }
   };
 
-  const saveEdit = async (id: string) => {
-    if (!editName.trim()) return;
+  // Riemërtimi ndryshon edhe të gjitha produktet që e përdorin emrin e vjetër,
+  // që asnjë produkt të mos mbetet "jashtë" filtrit.
+  const saveEdit = async (s: Subcategory) => {
+    const newName = editName.trim();
+    if (!newName || newName === s.name) { setEditId(null); return; }
     setSaving(true);
     try {
-      await updateDoc(doc(db, "subcategories", id), { name: editName.trim() });
+      const n = await countProducts(s.categoryName, s.name);
+      if (n > 0 && !confirm(`"${s.name}" → "${newName}"\n\nDo të përditësohen edhe ${n.toLocaleString()} produkte që e përdorin. Vazhdo?`)) {
+        setSaving(false); return;
+      }
+      if (n > 0) {
+        const snap = await getDocs(query(collection(db, "products"),
+          where("category", "==", s.categoryName), where("subcategory", "==", s.name)));
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const batch = writeBatch(db);
+          snap.docs.slice(i, i + 400).forEach(d => batch.update(d.ref, { subcategory: newName }));
+          await batch.commit();
+          setProgress(`${Math.min(i + 400, snap.docs.length)} / ${snap.docs.length} produkte`);
+        }
+      }
+      await updateDoc(doc(db, "subcategories", s.id), { name: newName });
       setEditId(null);
+      setProgress("");
       await loadSubcategories();
-    } catch (e) { console.error(e); }
-    finally { setSaving(false); }
+    } catch (e) { console.error(e); alert("Riemërtimi dështoi. Provo përsëri."); }
+    finally { setSaving(false); setProgress(""); }
   };
 
-  const deleteSubcat = async (id: string, name: string) => {
-    if (!confirm(`Fshi "${name}"?`)) return;
+  // Fshirja lejohet vetëm kur nënkategoria nuk ka produkte
+  const deleteSubcat = async (s: Subcategory) => {
     try {
-      await deleteDoc(doc(db, "subcategories", id));
-      setSubcategories(prev => prev.filter(s => s.id !== id));
-    } catch (e) { console.error(e); }
+      const n = await countProducts(s.categoryName, s.name);
+      if (n > 0) {
+        alert(`"${s.name}" nuk mund të fshihet.\n\nKa ${n.toLocaleString()} produkte. Zhvendosi te një nënkategori tjetër më parë.`);
+        return;
+      }
+      if (!confirm(`Fshi "${s.name}"? Nuk ka produkte, kështu që nuk preket asgjë tjetër.`)) return;
+      await deleteDoc(doc(db, "subcategories", s.id));
+      setSubcategories(prev => prev.filter(x => x.id !== s.id));
+    } catch (e) { console.error(e); alert("Kontrolli dështoi. Provo përsëri."); }
   };
 
   const filtered = subcategories.filter(s => s.categoryName === activeTab);
@@ -147,7 +182,7 @@ export default function AdminSubcategoriesPage() {
           </div>
           {subcategories.length === 0 && (
             <button onClick={seedSubcategories} disabled={seeding} className="adm-btn-primary">
-              {seeding ? "Duke shtuar..." : "⚡ Shto të 50 nënkategoritë"}
+              {seeding ? "Duke shtuar..." : `⚡ Shto të ${DEFAULT_SUBCATEGORIES.length} nënkategoritë`}
             </button>
           )}
         </div>
@@ -178,6 +213,8 @@ export default function AdminSubcategoriesPage() {
         </button>
       </div>
 
+      {progress && <div className="sc-progress">Duke përditësuar produktet: {progress}</div>}
+
       {/* List */}
       {loading ? (
         <div className="adm-loading">Duke ngarkuar...</div>
@@ -186,7 +223,7 @@ export default function AdminSubcategoriesPage() {
           <p>Nuk ka nënkategori për {activeTab}.</p>
           {subcategories.length === 0 && (
             <p style={{ marginTop: "8px", fontSize: "0.82rem", color: "#71717a" }}>
-              Kliko "Shto të 50 nënkategoritë" për të shtuar listën e plotë automatikisht.
+              Kliko butonin lart për të shtuar listën e plotë automatikisht.
             </p>
           )}
         </div>
@@ -198,7 +235,7 @@ export default function AdminSubcategoriesPage() {
               {editId === s.id ? (
                 <input type="text" value={editName}
                   onChange={e => setEditName(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && saveEdit(s.id)}
+                  onKeyDown={e => e.key === "Enter" && saveEdit(s)}
                   className="sc-edit-input" autoFocus />
               ) : (
                 <span className="sc-name">{s.name}</span>
@@ -206,13 +243,13 @@ export default function AdminSubcategoriesPage() {
               <div className="sc-actions">
                 {editId === s.id ? (
                   <>
-                    <button onClick={() => saveEdit(s.id)} disabled={saving} className="sc-btn-save">✓</button>
-                    <button onClick={() => setEditId(null)} className="sc-btn-cancel">✕</button>
+                    <button onClick={() => saveEdit(s)} disabled={saving} className="sc-btn-save">{saving ? "…" : "✓"}</button>
+                    <button onClick={() => setEditId(null)} disabled={saving} className="sc-btn-cancel">✕</button>
                   </>
                 ) : (
                   <>
-                    <button onClick={() => { setEditId(s.id); setEditName(s.name); }} className="sc-btn-edit">✏️</button>
-                    <button onClick={() => deleteSubcat(s.id, s.name)} className="sc-btn-del">🗑</button>
+                    <button onClick={() => { setEditId(s.id); setEditName(s.name); }} className="sc-btn-edit" title="Riemërto">✏️</button>
+                    <button onClick={() => deleteSubcat(s)} className="sc-btn-del" title="Fshi (vetëm nëse nuk ka produkte)">🗑</button>
                   </>
                 )}
               </div>
@@ -240,6 +277,7 @@ export default function AdminSubcategoriesPage() {
         .sc-add-input{flex:1;padding:0.65rem 1rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#f4f4f5;font-size:0.875rem;outline:none;font-family:inherit;transition:border-color .2s}
         .sc-add-input:focus{border-color:rgba(249,115,22,0.4)}
         .sc-add-input::placeholder{color:#3f3f46}
+        .sc-progress{background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.25);color:#f5c842;border-radius:10px;padding:0.6rem 1rem;font-size:0.85rem;margin-bottom:1rem}
         .sc-list{display:flex;flex-direction:column;gap:6px}
         .sc-item{display:flex;align-items:center;gap:12px;background:#141414;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:0.75rem 1rem}
         .sc-order{font-size:0.75rem;color:#52525b;font-weight:600;width:20px;flex-shrink:0}
