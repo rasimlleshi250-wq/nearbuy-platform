@@ -41,7 +41,8 @@ function ProfessionalsContent() {
   const [cityFilter, setCityFilter] = useState(searchParams.get("city") || ALL);
   const [profFilter, setProfFilter] = useState(normalizeProfession(searchParams.get("profession")) || ALL);
   const [search, setSearch] = useState(searchParams.get("q") || "");
-  const [showForm, setShowForm] = useState(false);
+  // Nga homepage: /professionals?request=1 hap direkt formën "Kërko mjeshtër"
+  const [showForm, setShowForm] = useState(searchParams.get("request") === "1");
 
   useEffect(() => {
     const load = async () => {

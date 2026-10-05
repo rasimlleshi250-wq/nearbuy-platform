@@ -6,6 +6,7 @@ import Link from "next/link";
 import { db } from "@/lib/firebase/config";
 import { collection, query, where, getDocs, limit } from "firebase/firestore";
 import { getEffectivePlan } from "@/lib/plans";
+import { getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
 
 interface Business {
   id: string;
@@ -84,9 +85,21 @@ export default function HomePage() {
     };
     const loadProfessionals = async () => {
       try {
-        const q = query(collection(db, "professionals"), where("verified", "==", true), limit(6));
+        // Premium të parët, pastaj Pro, pastaj ata me foto punimesh
+        const q = query(collection(db, "professionals"), where("verified", "==", true), limit(30));
         const snap = await getDocs(q);
-        setProfessionals(snap.docs.map(d => ({ id: d.id, ...d.data() } as Professional)));
+        const list = snap.docs
+          .map(d => {
+            const raw = d.data();
+            const plan = getEffectiveProPlan(raw);
+            return {
+              id: d.id, ...raw, profession: normalizeProfession(raw.profession), featured: plan.featured, rank: plan.rank,
+              photosCount: Array.isArray(raw.workPhotos) ? raw.workPhotos.length : 0,
+            } as Professional & { rank: number; photosCount: number; blocked?: boolean };
+          })
+          .filter(p => !p.blocked)
+          .sort((a, b) => b.rank - a.rank || b.photosCount - a.photosCount);
+        setProfessionals(list.slice(0, 6));
       } catch (e) { console.error(e); }
       finally { setLoadingPro(false); }
     };
@@ -268,6 +281,13 @@ export default function HomePage() {
             <h2 className="nb-section-title">Profesionistë të Verifikuar</h2>
             <Link href="/professionals" className="nb-see-all">Shiko të gjitha →</Link>
           </div>
+          <Link href="/professionals?request=1" className="nb-job-cta">
+            <div>
+              <p className="nb-job-title">🛠 Ke nevojë për një mjeshtër?</p>
+              <p className="nb-job-sub">Hidraulik, elektricist, bojaxhi... Përshkruaj punën dhe mjeshtrat e zonës tënde të kontaktojnë. Falas.</p>
+            </div>
+            <span className="nb-job-btn">Kërko mjeshtër →</span>
+          </Link>
           {loadingPro ? (
             <div className="nb-loading-row">
               {[...Array(3)].map((_, i) => <div key={i} className="nb-skeleton nb-skeleton-pro" />)}
@@ -384,6 +404,11 @@ export default function HomePage() {
         .nb-how-title{font-size:1.05rem;font-weight:700;color:#111}
         .nb-how-desc{font-size:0.82rem;color:#6b7280;line-height:1.6}
         .nb-how-arrow{position:absolute;right:-20px;top:50%;transform:translateY(-50%);font-size:1.2rem;color:#52525b;z-index:1}
+        .nb-job-cta{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;text-decoration:none;background:#faf5ff;border:1px solid #e9d5ff;border-radius:16px;padding:1.1rem 1.4rem;margin-bottom:1.25rem;transition:border-color .2s}
+        .nb-job-cta:hover{border-color:#a855f7}
+        .nb-job-title{font-size:1.05rem;font-weight:800;color:#111}
+        .nb-job-sub{font-size:0.85rem;color:#52525b;margin-top:4px;line-height:1.5}
+        .nb-job-btn{padding:0.65rem 1.2rem;background:#7c3aed;color:#fff;border-radius:10px;font-weight:700;font-size:0.88rem;white-space:nowrap}
         .nb-pro-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
         .nb-pro-card{text-decoration:none;color:inherit;cursor:pointer;position:relative;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:1.25rem;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
         .nb-pro-card:hover{border-color:#a855f7;transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.1)}
