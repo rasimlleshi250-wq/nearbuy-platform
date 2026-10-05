@@ -152,12 +152,13 @@ export async function POST(req: Request) {
       if (!d || d.status === "pending" || d.businessEmailed) return NextResponse.json({ ok: true, skipped: true });
       const ok = d.status === "approved" || d.status === "merged";
       const to = await ownerEmail("business", d.businessId);
-      await sendEmail(to, ok ? `✅ "${d.name}" u shtua në profilin tënd` : `Kërkesa për "${d.name}"`, emailLayout(
+      if (!to) console.error("notify: biznesi pa email", d.businessId);
+      const sent = await sendEmail(to, ok ? `✅ "${d.name}" u shtua në profilin tënd` : `Kërkesa për "${d.name}"`, emailLayout(
         ok ? "Produkti u shtua" : "Kërkesa nuk u pranua",
         ok ? `<p><b>${esc(d.name)}</b> është tani në katalog dhe në profilin tënd me çmimin ${esc(d.price)} L. Klientët mund ta gjejnë që sot.</p>`
            : `<p>Produkti <b>${esc(d.name)}</b> nuk u shtua në katalog. Nëse mendon se është gabim, na shkruaj.</p>`,
         { label: "Shiko produktet e mia", href: `${SITE}/dashboard/business/products` }));
-      await ref.update({ businessEmailed: true });
+      if (sent) await ref.update({ businessEmailed: true });
     }
 
     // ── Paketa u aktivizua (nga admini) ─────────────────────────
@@ -168,13 +169,16 @@ export async function POST(req: Request) {
       const key = `${d?.subscription}-${d?.subscriptionEnd}`;
       if (!d || d.planStatus !== "active" || d.activationEmailed === key) return NextResponse.json({ ok: true, skipped: true });
       const to = await ownerEmail(kind === "professional" ? "professional" : "business", id, d);
+      if (!to) console.error("notify: pa email për", col, id);
       const name = PLAN_NAMES[String(d.subscription)] || String(d.subscription);
-      await sendEmail(to, `🎉 Paketa ${name.split(" (")[0]} është aktive`, emailLayout(
+      const sent = await sendEmail(to, `🎉 Paketa ${name.split(" (")[0]} është aktive`, emailLayout(
         "Faleminderit! Paketa jote është aktive",
         `<p>Paketa <b>${esc(name.split(" (")[0])}</b> për <b>${esc(d.name)}</b> është aktive deri më <b>${esc(d.subscriptionEnd)}</b>.</p>` +
         `<p>Do të të njoftojmë 7 ditë para se të skadojë.</p>`,
         { label: "Hap panelin", href: `${SITE}/dashboard/${kind === "professional" ? "professional" : "business"}` }));
-      await ref.update({ activationEmailed: key });
+      // Shënohet vetëm kur email-i u dërgua vërtet, që të provohet përsëri herën tjetër
+      if (sent) await ref.update({ activationEmailed: key });
+      return NextResponse.json({ ok: sent, email: to ? "found" : "missing" });
     }
 
     else return NextResponse.json({ ok: false }, { status: 400 });

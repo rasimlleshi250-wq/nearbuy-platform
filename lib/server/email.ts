@@ -7,7 +7,8 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://nearbuy.al";
 export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || "NearBuy <njoftime@nearbuy.al>";
-  if (!key || !to) return false;
+  if (!key) { console.error("Resend: mungon RESEND_API_KEY në Vercel"); return false; }
+  if (!to) return false;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
