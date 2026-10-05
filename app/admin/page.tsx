@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where, getCountFromServer, Timestamp } from "firebase/firestore";
+import { PLANS as PLAN_DEFS, PLAN_ORDER, PlanId, getEffectivePlan, normalizePlanId } from "@/lib/plans";
+import { getSubscriptionState } from "@/lib/subscription";
+import { whatsappLink } from "@/lib/businessInfo";
 import { db } from "@/lib/firebase/config";
 import { getTotalStats } from "@/lib/firebase/analytics";
 import Link from "next/link";
@@ -16,6 +19,19 @@ interface Business {
   featured: boolean;
   phone?: string;
   createdAt?: any;
+  planStatus?: string;
+  requestedPlan?: string;
+  subscriptionEnd?: string;
+  blocked?: boolean;
+}
+
+interface CustomerRequest {
+  id: string;
+  productName: string;
+  category: string;
+  city: string;
+  sentTo?: number;
+  createdAt?: { seconds: number };
 }
 
 interface BizStats {
@@ -30,10 +46,9 @@ interface PlatformStats {
   totalBusinesses: number;
   verifiedBusinesses: number;
   pendingBusinesses: number;
-  basicPlan: number;
-  advancedPlan: number;
-  proPlan: number;
-  freePlan: number;
+  planCounts: Record<PlanId, number>;
+  pendingPlanRequests: number;
+  pendingProductRequests: number;
   totalProfessionals: number;
   verifiedProfessionals: number;
   totalBusinessProducts: number;
@@ -44,7 +59,7 @@ export default function AdminOverviewPage() {
   const [stats, setStats] = useState<PlatformStats>({
     totalProducts: 0, activeProducts: 0, productsWithPhoto: 0,
     totalBusinesses: 0, verifiedBusinesses: 0, pendingBusinesses: 0,
-    basicPlan: 0, advancedPlan: 0, proPlan: 0, freePlan: 0,
+    planCounts: { free: 0, baze: 0, plus: 0, premium: 0 }, pendingPlanRequests: 0, pendingProductRequests: 0,
     totalProfessionals: 0, verifiedProfessionals: 0,
     totalBusinessProducts: 0, monthlyRevenue: 0,
   });
@@ -54,45 +69,60 @@ export default function AdminOverviewPage() {
   const [loadingStats, setLoadingStats] = useState(false);
   const [sortBy, setSortBy] = useState<"views" | "contacts" | "name">("views");
   const [search, setSearch] = useState("");
+  const [customerReqs, setCustomerReqs] = useState<CustomerRequest[]>([]);
 
   useEffect(() => {
     const load = async () => {
       try {
-        // Produktet
-        const prodSnap = await getDocs(collection(db, "products"));
-        const products = prodSnap.docs.map(d => d.data());
+        // Numërime — pa i lexuar të gjitha produktet (përndryshe 7,000+ lexime për çdo hapje)
+        const count = async (q: Parameters<typeof getCountFromServer>[0]) => {
+          try { return (await getCountFromServer(q)).data().count; } catch { return 0; }
+        };
+        const [totalProducts, activeProducts, productsWithPhoto, totalBusinessProducts, pendingProductRequests] = await Promise.all([
+          count(collection(db, "products")),
+          count(query(collection(db, "products"), where("status", "==", "active"))),
+          count(query(collection(db, "products"), where("images", "!=", []))),
+          count(collection(db, "business_products")),
+          count(query(collection(db, "product_requests"), where("status", "==", "pending"))),
+        ]);
 
-        // Bizneset
+        // Bizneset dhe profesionistët (pak dokumente)
         const bizSnap = await getDocs(collection(db, "businesses"));
         const bizList = bizSnap.docs.map(d => ({ id: d.id, ...d.data() } as Business));
-
-        // Profesionistet
         const proSnap = await getDocs(collection(db, "professionals"));
         const pros = proSnap.docs.map(d => d.data());
 
-        // Business products
-        const bpSnap = await getDocs(collection(db, "business_products"));
-
-        const basic = bizList.filter(b => b.subscription === "basic").length;
-        const advanced = bizList.filter(b => b.subscription === "advanced").length;
-        const pro = bizList.filter(b => b.subscription === "pro").length;
+        // Paketat dhe të ardhurat sipas paketës që vlen sot
+        const planCounts: Record<PlanId, number> = { free: 0, baze: 0, plus: 0, premium: 0 };
+        let monthlyRevenue = 0;
+        bizList.forEach(b => {
+          const plan = getEffectivePlan(b as unknown as Record<string, unknown>);
+          planCounts[plan.id]++;
+          monthlyRevenue += plan.priceEur;
+        });
 
         setStats({
-          totalProducts: products.length,
-          activeProducts: products.filter(p => p.status === "active").length,
-          productsWithPhoto: products.filter(p => p.images?.length > 0).length,
+          totalProducts,
+          activeProducts,
+          productsWithPhoto,
           totalBusinesses: bizList.length,
           verifiedBusinesses: bizList.filter(b => b.verified).length,
-          pendingBusinesses: bizList.filter(b => !b.verified).length,
-          basicPlan: basic,
-          advancedPlan: advanced,
-          proPlan: pro,
-          freePlan: bizList.filter(b => !b.subscription || b.subscription === "free").length,
+          pendingBusinesses: bizList.filter(b => !b.verified && !b.blocked).length,
+          planCounts,
+          pendingPlanRequests: bizList.filter(b => b.planStatus === "pending" && b.requestedPlan).length,
+          pendingProductRequests,
           totalProfessionals: pros.length,
           verifiedProfessionals: pros.filter(p => p.verified).length,
-          totalBusinessProducts: bpSnap.size,
-          monthlyRevenue: basic * 1000 + advanced * 1500 + pro * 2500,
+          totalBusinessProducts,
+          monthlyRevenue,
         });
+
+        // Kërkesat e klientëve të 7 ditëve të fundit
+        try {
+          const since = Timestamp.fromMillis(Date.now() - 7 * 86400000);
+          const cr = await getDocs(query(collection(db, "customer_requests"), where("createdAt", ">=", since)));
+          setCustomerReqs(cr.docs.map(d => ({ id: d.id, ...d.data() } as CustomerRequest)));
+        } catch (e) { console.error(e); }
 
         setBusinesses(bizList);
 
@@ -125,6 +155,22 @@ export default function AdminOverviewPage() {
       return (a.name || "").localeCompare(b.name || "");
     });
 
+  // Paketat që skadojnë brenda 7 ditëve, ose kanë skaduar
+  const expiring = businesses
+    .map(b => ({ b, st: getSubscriptionState(b as unknown as Record<string, unknown>) }))
+    .filter(x => x.st.plan !== "free" && x.st.endDate && x.st.daysLeft !== null && x.st.daysLeft <= 7)
+    .sort((a, b) => (a.st.daysLeft || 0) - (b.st.daysLeft || 0));
+
+  // Kërkesat e klientëve sipas qytetit + kategorisë
+  const demand = Object.values(customerReqs.reduce((m, r) => {
+    const k = `${r.city}|${r.category}`;
+    m[k] = m[k] || { city: r.city, category: r.category, count: 0, unserved: 0 };
+    m[k].count++;
+    if (!r.sentTo) m[k].unserved++;
+    return m;
+  }, {} as Record<string, { city: string; category: string; count: number; unserved: number }>)).sort((a, b) => b.count - a.count);
+
+  const paidCount = stats.planCounts.baze + stats.planCounts.plus + stats.planCounts.premium;
   const photoPercent = stats.totalProducts > 0 ? Math.round(stats.productsWithPhoto / stats.totalProducts * 100) : 0;
 
   return (
@@ -154,27 +200,59 @@ export default function AdminOverviewPage() {
         ))}
       </div>
 
+      {/* ── Kërkon vëmendjen tënde ── */}
+      {!loading && (
+        <div className="ov-card ov-attn">
+          <h2 className="ov-card-title">🔔 Kërkon vëmendjen tënde</h2>
+          <div className="ov-attn-grid">
+            {[
+              { n: stats.pendingBusinesses, label: "biznese për aprovim", href: "/admin/businesses" },
+              { n: stats.pendingPlanRequests, label: "kërkesa për paketa", href: "/admin/businesses" },
+              { n: stats.pendingProductRequests, label: "kërkesa për produkte", href: "/admin/product-requests" },
+              { n: customerReqs.length, label: "kërkesa klientësh (7 ditë)", href: "#demand" },
+            ].map(a => (
+              <Link key={a.label} href={a.href} className={`ov-attn-item ${a.n > 0 ? "hot" : ""}`}>
+                <span className="ov-attn-n">{a.n}</span>
+                <span className="ov-attn-label">{a.label}</span>
+              </Link>
+            ))}
+          </div>
+
+          {expiring.length > 0 && (
+            <div className="ov-attn-list">
+              <p className="ov-attn-sub">⏰ Paketa që skadojnë ose kanë skaduar</p>
+              {expiring.map(({ b, st }) => {
+                const wa = whatsappLink(b.phone, `Përshëndetje ${b.name}, paketa juaj ${PLAN_DEFS[normalizePlanId(b.subscription)].name} në NearBuy ${st.expired ? "ka skaduar" : `skadon për ${st.daysLeft} ditë`}. Dëshironi ta rinovoni?`);
+                return (
+                  <div key={b.id} className="ov-attn-row">
+                    <span className="ov-attn-name">{b.name}</span>
+                    <span className="ov-attn-plan">{PLAN_DEFS[normalizePlanId(b.subscription)].name}</span>
+                    <span className={st.expired ? "ov-red" : "ov-yellow"}>{st.expired ? "Skaduar" : st.daysLeft === 0 ? "Skadon sot" : `${st.daysLeft} ditë`}</span>
+                    {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className="ov-wa">💬 WhatsApp</a>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Te ardhurat & Planet ── */}
       <div className="ov-row2">
         <div className="ov-card">
           <h2 className="ov-card-title">💰 Të Ardhurat Mujore</h2>
           <div className="ov-revenue">
-            <div className="ov-revenue-main">{stats.monthlyRevenue.toLocaleString()} L</div>
-            <div className="ov-revenue-sub">nga abonentet aktivë</div>
+            <div className="ov-revenue-main">€{stats.monthlyRevenue.toLocaleString()}<span className="ov-rev-per">/muaj</span></div>
+            <div className="ov-revenue-sub">nga {paidCount} paketa aktive · €{(stats.monthlyRevenue * 12).toLocaleString()} në vit</div>
           </div>
           <div className="ov-plans">
-            {[
-              { name: "Free", count: stats.freePlan, color: "#71717a", price: 0 },
-              { name: "Basic", count: stats.basicPlan, color: "#3b82f6", price: 1000 },
-              { name: "Advanced", count: stats.advancedPlan, color: "#a855f7", price: 1500 },
-              { name: "Pro", count: stats.proPlan, color: "#f97316", price: 2500 },
-            ].map(p => (
+            {PLAN_ORDER.map(id => ({ name: PLAN_DEFS[id].name, count: stats.planCounts[id], color: PLAN_DEFS[id].color, price: PLAN_DEFS[id].priceEur })).map(p => (
               <div key={p.name} className="ov-plan-row">
                 <span className="ov-plan-dot" style={{ background: p.color }} />
                 <span className="ov-plan-name">{p.name}</span>
                 <span className="ov-plan-count">{loading ? "—" : p.count} biznese</span>
                 <span className="ov-plan-rev" style={{ color: p.price > 0 ? "#22c55e" : "#52525b" }}>
-                  {p.price > 0 ? `${(p.count * p.price).toLocaleString()} L/muaj` : "—"}
+                  {p.price > 0 ? `€${(p.count * p.price).toLocaleString()}/muaj` : "—"}
                 </span>
               </div>
             ))}
@@ -187,7 +265,7 @@ export default function AdminOverviewPage() {
             {[
               { label: "Biznese të verifikuara", val: `${stats.verifiedBusinesses}/${stats.totalBusinesses}`, pct: stats.totalBusinesses > 0 ? Math.round(stats.verifiedBusinesses/stats.totalBusinesses*100) : 0, color: "#22c55e" },
               { label: "Produkte me foto", val: `${stats.productsWithPhoto}/${stats.totalProducts}`, pct: photoPercent, color: "#f97316" },
-              { label: "Biznese me abonement", val: `${stats.basicPlan + stats.advancedPlan + stats.proPlan}/${stats.totalBusinesses}`, pct: stats.totalBusinesses > 0 ? Math.round((stats.basicPlan + stats.advancedPlan + stats.proPlan)/stats.totalBusinesses*100) : 0, color: "#3b82f6" },
+              { label: "Biznese me paketë aktive", val: `${paidCount}/${stats.totalBusinesses}`, pct: stats.totalBusinesses > 0 ? Math.round(paidCount/stats.totalBusinesses*100) : 0, color: "#3b82f6" },
               { label: "Profesionistë verifikuar", val: `${stats.verifiedProfessionals}/${stats.totalProfessionals}`, pct: stats.totalProfessionals > 0 ? Math.round(stats.verifiedProfessionals/stats.totalProfessionals*100) : 0, color: "#a855f7" },
             ].map((h, i) => (
               <div key={i} className="ov-health-item">
@@ -202,6 +280,27 @@ export default function AdminOverviewPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* ── Kërkesa e klientëve sipas qytetit dhe kategorisë ── */}
+      <div className="ov-card" id="demand" style={{ marginBottom: "1.5rem" }}>
+        <h2 className="ov-card-title">📨 Çfarë kërkojnë klientët (7 ditët e fundit)</h2>
+        {demand.length === 0 ? (
+          <p className="ov-muted">Ende s'ka kërkesa nga klientët për produkte pa dyqan.</p>
+        ) : (
+          <div className="ov-demand">
+            {demand.map(d => (
+              <div key={`${d.city}-${d.category}`} className="ov-demand-row">
+                <span className="ov-demand-n">{d.count}</span>
+                <span className="ov-demand-what">{d.category} në <b>{d.city}</b></span>
+                {d.unserved > 0
+                  ? <span className="ov-red">{d.unserved} pa asnjë dyqan Plus/Premium — mundësi shitjeje</span>
+                  : <span className="ov-green">u dërguan te dyqanet</span>}
+              </div>
+            ))}
+            <p className="ov-muted">Produktet e kërkuara: {customerReqs.slice(0, 8).map(r => r.productName).join(" · ")}</p>
+          </div>
+        )}
       </div>
 
       {/* ── Analytics per çdo Biznes ── */}
@@ -238,8 +337,9 @@ export default function AdminOverviewPage() {
             <tbody>
               {filtered.map(b => {
                 const bs = bizStats[b.id] || { totalViews: 0, totalContacts: 0 };
-                const planColors: Record<string, string> = { basic: "#3b82f6", advanced: "#a855f7", pro: "#f97316", free: "#52525b" };
-                const pc = planColors[b.subscription] || "#52525b";
+                const st = getSubscriptionState(b as unknown as Record<string, unknown>);
+                const def = PLAN_DEFS[normalizePlanId(b.subscription)];
+                const pc = st.expired ? "#52525b" : def.color;
                 return (
                   <tr key={b.id}>
                     <td>
@@ -253,7 +353,7 @@ export default function AdminOverviewPage() {
                     </td>
                     <td>
                       <span className="ov-plan-badge" style={{ color: pc, borderColor: `${pc}40`, background: `${pc}12` }}>
-                        {b.subscription || "free"}
+                        {def.name}{st.expired ? " · skaduar" : ""}
                       </span>
                     </td>
                     <td>
@@ -365,7 +465,32 @@ export default function AdminOverviewPage() {
         .ov-btn-view{font-size:0.75rem;padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#a1a1aa;border-radius:6px;text-decoration:none;transition:background .2s}
         .ov-btn-view:hover{background:rgba(255,255,255,0.1);color:#fff}
         @media(max-width:900px){.ov-kpi-grid{grid-template-columns:repeat(2,1fr)}.ov-row2{grid-template-columns:1fr}}
-      `}</style>
+      
+        .ov-attn{margin-bottom:1.5rem}
+        .ov-attn-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+        .ov-attn-item{display:flex;flex-direction:column;gap:2px;padding:0.8rem 1rem;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);text-decoration:none}
+        .ov-attn-item.hot{border-color:rgba(249,115,22,0.4);background:rgba(249,115,22,0.07)}
+        .ov-attn-n{font-size:1.5rem;font-weight:800;color:#f4f4f5}
+        .ov-attn-item.hot .ov-attn-n{color:#f97316}
+        .ov-attn-label{font-size:0.78rem;color:#a1a1aa}
+        .ov-attn-list{margin-top:1rem;display:flex;flex-direction:column;gap:6px}
+        .ov-attn-sub{font-size:0.8rem;color:#a1a1aa;font-weight:600;margin-bottom:2px}
+        .ov-attn-row{display:flex;align-items:center;gap:12px;padding:0.5rem 0.75rem;border-radius:8px;background:rgba(255,255,255,0.03);font-size:0.84rem}
+        .ov-attn-name{flex:1;color:#e4e4e7;font-weight:600}
+        .ov-attn-plan{color:#a1a1aa}
+        .ov-red{color:#f87171;font-size:0.8rem;font-weight:600}
+        .ov-yellow{color:#f5c842;font-size:0.8rem;font-weight:600}
+        .ov-green{color:#22c55e;font-size:0.8rem}
+        .ov-wa{padding:0.35rem 0.7rem;background:#16a34a;color:#fff;border-radius:6px;text-decoration:none;font-size:0.75rem;font-weight:700}
+        .ov-rev-per{font-size:1rem;color:#71717a;font-weight:500;margin-left:4px}
+        .ov-muted{font-size:0.82rem;color:#71717a;line-height:1.5}
+        .ov-demand{display:flex;flex-direction:column;gap:6px}
+        .ov-demand-row{display:flex;align-items:center;gap:12px;padding:0.5rem 0.75rem;border-radius:8px;background:rgba(255,255,255,0.03);font-size:0.86rem;flex-wrap:wrap}
+        .ov-demand-n{min-width:28px;font-weight:800;color:#f5c842;font-size:1rem}
+        .ov-demand-what{flex:1;color:#d4d4d8}
+        .ov-demand-what b{color:#fff}
+        @media(max-width:800px){.ov-attn-grid{grid-template-columns:1fr 1fr}}
+`}</style>
     </div>
   );
 }
