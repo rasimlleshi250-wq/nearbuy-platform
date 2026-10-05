@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, documentId, limit } from "firebase/firestore";
+import { writeBatch, collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, documentId, limit } from "firebase/firestore";
 import { searchWords, matchesAllWords, pickMainTerm } from "@/lib/searchKeywords";
 import { extractWords } from "@/lib/productMatcher";
 import ExcelImport from "./ExcelImport";
@@ -40,6 +40,8 @@ interface MyProduct {
   offerPrice?: number;
   offerEnd?: string;
   featured?: boolean;
+  updatedAtSec?: number;   // kur u përditësua çmimi për herë të fundit
+  sourceName?: string;     // emri si ishte në Excel-in e biznesit
   missing?: boolean; // produkti është fshirë ose çaktivizuar nga katalogu
 }
 
@@ -65,6 +67,12 @@ export default function BusinessProductsPage() {
   const [loading, setLoading] = useState(true);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [mineSearch, setMineSearch] = useState("");
+  const [mineFilter, setMineFilter] = useState<"all" | "out" | "offer" | "stale">("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [quickId, setQuickId] = useState<string | null>(null);
+  const [quickPrice, setQuickPrice] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [searchResults, setSearchResults] = useState<CatalogProduct[]>([]);
   const [searching, setSearching] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -130,7 +138,8 @@ export default function BusinessProductsPage() {
         name = known.name; image = known.images?.[0] || ""; category = known.category;
         missing = (known.status || "active") !== "active";
       }
-      prods.push({ id: d.id, productId: data.productId, name, image, category, price: data.price || 0, inStock: data.inStock ?? true, offerPrice: data.offerPrice || undefined, offerEnd: data.offerEnd || undefined, missing });
+      prods.push({ id: d.id, productId: data.productId, name, image, category, price: data.price || 0, inStock: data.inStock ?? true, offerPrice: data.offerPrice || undefined, offerEnd: data.offerEnd || undefined, missing,
+        updatedAtSec: data.updatedAt?.seconds || data.createdAt?.seconds, sourceName: data.sourceName || undefined });
     }
     // Produktet që nuk ekzistojnë më dalin të parat, që biznesi t'i heqë
     prods.sort((a, b) => Number(!!b.missing) - Number(!!a.missing));
@@ -215,12 +224,71 @@ export default function BusinessProductsPage() {
       setMyProducts(prev => prev.map(x => x.id === p.id ? {
         ...x, price: Number(editForm.price), inStock: editForm.inStock,
         offerPrice: editForm.hasOffer && editForm.offerPrice ? Number(editForm.offerPrice) : undefined,
-        offerEnd: editForm.hasOffer ? editForm.offerEnd || undefined : undefined
+        offerEnd: editForm.hasOffer ? editForm.offerEnd || undefined : undefined,
+        updatedAtSec: Date.now() / 1000,
       } : x));
       setEditId(null);
       showSuccess("Produkti u përditësua!");
     } catch (e) { console.error(e); }
     finally { setSaving(null); }
+  };
+
+  // ── Çmimet e vjetra: më shumë se 30 ditë pa u konfirmuar ───────────────
+  const STALE_DAYS = 30;
+  const ageDays = (p: MyProduct) => p.updatedAtSec ? Math.floor((Date.now() / 1000 - p.updatedAtSec) / 86400) : 999;
+  const isStale = (p: MyProduct) => !p.missing && ageDays(p) >= STALE_DAYS;
+
+  // Ndryshim i shpejtë i çmimit: kliko çmimin → shkruaj → Enter
+  const saveQuickPrice = async (p: MyProduct) => {
+    const n = Number(quickPrice);
+    if (!quickPrice || isNaN(n) || n <= 0) { setQuickId(null); return; }
+    setSaving(p.id);
+    try {
+      await updateDoc(doc(db, "business_products", p.id), { price: n, updatedAt: serverTimestamp() });
+      setMyProducts(prev => prev.map(x => x.id === p.id ? { ...x, price: n, updatedAtSec: Date.now() / 1000 } : x));
+      showSuccess("Çmimi u ndryshua!");
+    } catch (e) { console.error(e); }
+    finally { setSaving(null); setQuickId(null); }
+  };
+
+  const toggleStock = async (p: MyProduct) => {
+    setSaving(p.id);
+    try {
+      await updateDoc(doc(db, "business_products", p.id), { inStock: !p.inStock, updatedAt: serverTimestamp() });
+      setMyProducts(prev => prev.map(x => x.id === p.id ? { ...x, inStock: !p.inStock, updatedAtSec: Date.now() / 1000 } : x));
+    } catch (e) { console.error(e); }
+    finally { setSaving(null); }
+  };
+
+  // Veprime në grup
+  const bulk = async (action: "in" | "out" | "confirm" | "delete", ids: string[]) => {
+    if (ids.length === 0) return;
+    if (action === "delete" && !confirm(`Fshi ${ids.length} produkte nga lista jote?`)) return;
+    setBulkBusy(true);
+    try {
+      const prices = new Map(myProducts.map(p => [p.id, p.price] as [string, number]));
+      for (let i = 0; i < ids.length; i += 400) {
+        const batch = writeBatch(db);
+        ids.slice(i, i + 400).forEach(id => {
+          const ref = doc(db, "business_products", id);
+          if (action === "delete") batch.delete(ref);
+          // Çmimi dërgohet përsëri që rregullat e sigurisë ta pranojnë përditësimin
+          else batch.update(ref, {
+            price: prices.get(id) || 0,
+            ...(action === "in" ? { inStock: true } : action === "out" ? { inStock: false } : {}),
+            updatedAt: serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+      const now = Date.now() / 1000;
+      setMyProducts(prev => action === "delete"
+        ? prev.filter(p => !ids.includes(p.id))
+        : prev.map(p => ids.includes(p.id) ? { ...p, updatedAtSec: now, inStock: action === "in" ? true : action === "out" ? false : p.inStock } : p));
+      setSelected(new Set());
+      showSuccess(action === "delete" ? `${ids.length} produkte u fshinë` : action === "confirm" ? `${ids.length} çmime u konfirmuan` : `${ids.length} produkte u përditësuan`);
+    } catch (e) { console.error(e); alert("Veprimi dështoi. Provo përsëri."); }
+    finally { setBulkBusy(false); }
   };
 
   const deleteProduct = async (id: string) => {
@@ -273,6 +341,14 @@ export default function BusinessProductsPage() {
 
   // Kërkim si në faqen publike (pa dalluar shkronja të mëdha, ë/e), vetëm produktet aktive,
   // dhe maksimumi 50 rezultate që faqja të mos rëndohet
+  const mineWords = searchWords(mineSearch);
+  const visibleMine = myProducts.filter(p =>
+    (mineWords.length === 0 || matchesAllWords(`${p.name} ${p.sourceName || ""} ${p.category}`, mineWords)) &&
+    (mineFilter === "all" || (mineFilter === "out" && !p.inStock) || (mineFilter === "offer" && !!p.offerPrice) || (mineFilter === "stale" && isStale(p))));
+  const staleCount = myProducts.filter(isStale).length;
+  const allVisibleSelected = visibleMine.length > 0 && visibleMine.every(p => selected.has(p.id));
+  const toggleSel = (id: string) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
   const activeCatalog = catalog.filter(c => (c.status || "active") === "active");
   const searchTerms = searchWords(catalogSearch);
   const filteredCatalog = searchResults;
@@ -376,8 +452,40 @@ export default function BusinessProductsPage() {
             <button onClick={() => setTab("add")} className="pr-empty-btn">➕ Shto produktin e parë</button>
           </div>
         ) : (
+          <>
+          {staleCount > 0 && (
+            <div className="pr-stale-banner">
+              <span>⏰ <b>{staleCount}</b> çmime nuk janë konfirmuar prej më shumë se {STALE_DAYS} ditësh. Klientët u besojnë më shumë çmimeve të freskëta.</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setMineFilter("stale")} className="pr-btn-edit">Shiko</button>
+                <button disabled={bulkBusy} onClick={() => bulk("confirm", myProducts.filter(isStale).map(p => p.id))} className="pr-btn-ok">✓ Janë të sakta</button>
+              </div>
+            </div>
+          )}
+          <div className="pr-toolbar">
+            <input className="pr-mine-search" placeholder="🔍 Kërko te produktet e mia..." value={mineSearch} onChange={e => setMineSearch(e.target.value)} />
+            {([["all", "Të gjitha"], ["out", "Jashtë stoku"], ["offer", "Me ofertë"], ["stale", "Çmim i vjetër"]] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setMineFilter(k)} className={`pr-chip ${mineFilter === k ? "on" : ""}`}>{l}</button>
+            ))}
+          </div>
+          <div className="pr-bulk">
+            <label className="pr-check">
+              <input type="checkbox" checked={allVisibleSelected}
+                onChange={() => setSelected(allVisibleSelected ? new Set() : new Set(visibleMine.filter(p => !p.missing).map(p => p.id)))} />
+              {selected.size > 0 ? `${selected.size} të zgjedhura` : `Zgjidh të gjitha (${visibleMine.length})`}
+            </label>
+            {selected.size > 0 && (
+              <div className="pr-bulk-btns">
+                <button disabled={bulkBusy} onClick={() => bulk("in", Array.from(selected))}>✓ Në stok</button>
+                <button disabled={bulkBusy} onClick={() => bulk("out", Array.from(selected))}>✗ Jashtë stoku</button>
+                <button disabled={bulkBusy} onClick={() => bulk("confirm", Array.from(selected))}>⏰ Konfirmo çmimet</button>
+                <button disabled={bulkBusy} onClick={() => bulk("delete", Array.from(selected))} className="danger">🗑 Fshi</button>
+              </div>
+            )}
+          </div>
+          {visibleMine.length === 0 && <p className="pr-sub" style={{ padding: "1rem 0" }}>Asnjë produkt për këtë kërkim.</p>}
           <div className="pr-list">
-            {myProducts.map(p => (
+            {visibleMine.map(p => (
               p.missing ? (
               <div key={p.id} className="pr-item pr-item-missing">
                 <div className="pr-item-left">
@@ -392,26 +500,40 @@ export default function BusinessProductsPage() {
                 </div>
               </div>
               ) : (
-              <div key={p.id} className={`pr-item ${editId === p.id ? "pr-item-editing" : ""}`}>
+              <div key={p.id} className={`pr-item ${editId === p.id ? "pr-item-editing" : ""} ${selected.has(p.id) ? "pr-item-sel" : ""}`}>
                 <div className="pr-item-left">
+                  <input type="checkbox" className="pr-sel" checked={selected.has(p.id)} onChange={() => toggleSel(p.id)} />
                   <div className="pr-item-img">
                     {p.image ? <img src={p.image} alt={p.name} /> : <span>📦</span>}
                   </div>
                   <div className="pr-item-info">
                     <p className="pr-item-name">{p.name}</p>
+                    {p.sourceName && p.sourceName !== p.name && <p className="pr-source">Në Excel-in tënd: "{p.sourceName}"</p>}
                     <p className="pr-item-cat">{p.category}</p>
                     <div className="pr-item-badges">
-                      <span className={`pr-stock ${p.inStock ? "in" : "out"}`}>
+                      <button type="button" title="Kliko për ta ndryshuar" onClick={() => toggleStock(p)} disabled={saving === p.id}
+                        className={`pr-stock pr-stock-btn ${p.inStock ? "in" : "out"}`}>
                         {p.inStock ? "✓ Në stok" : "✗ Jashtë stoku"}
-                      </span>
+                      </button>
                       {p.offerPrice && <span className="pr-offer-badge">🏷 Ofertë</span>}
+                      {isStale(p) && <span className="pr-stale">⏰ {ageDays(p) >= 999 ? "Çmim pa datë" : `${ageDays(p)} ditë`}</span>}
                     </div>
                   </div>
                 </div>
                 <div className="pr-item-right">
                   {editId !== p.id ? (
                     <>
-                      <p className="pr-item-price">{p.price.toLocaleString()} L</p>
+                      {quickId === p.id ? (
+                        <input autoFocus type="number" className="pr-quick" value={quickPrice}
+                          onChange={e => setQuickPrice(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") saveQuickPrice(p); if (e.key === "Escape") setQuickId(null); }}
+                          onBlur={() => saveQuickPrice(p)} />
+                      ) : (
+                        <button type="button" className="pr-item-price pr-price-btn" title="Kliko për ta ndryshuar"
+                          onClick={() => { setQuickId(p.id); setQuickPrice(String(p.price)); }}>
+                          {p.price.toLocaleString()} L ✎
+                        </button>
+                      )}
                       {p.offerPrice && <p className="pr-offer-price">{p.offerPrice.toLocaleString()} L <span>ofertë</span></p>}
                       <div className="pr-item-btns">
                         <button onClick={() => openEdit(p)} className="pr-btn-edit">✏️ Edito</button>
@@ -471,6 +593,7 @@ export default function BusinessProductsPage() {
               )
             ))}
           </div>
+          </>
         )
       )}
 
@@ -609,6 +732,25 @@ export default function BusinessProductsPage() {
         .pr-feat-badge{font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(249,115,22,0.1);color:#f97316}
         .pr-item-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
         .pr-item-price{font-size:1rem;font-weight:700;color:#f97316}
+        .pr-price-btn{background:none;border:1px dashed transparent;border-radius:6px;padding:2px 6px;cursor:pointer;font-family:inherit}
+        .pr-price-btn:hover{border-color:rgba(249,115,22,0.5)}
+        .pr-quick{width:110px;background:rgba(255,255,255,0.06);border:1px solid #f97316;border-radius:8px;color:#fff;font-size:0.95rem;padding:0.35rem 0.5rem;text-align:right;font-family:inherit;outline:none}
+        .pr-stock-btn{cursor:pointer;font-family:inherit}
+        .pr-stale{font-size:0.7rem;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(245,200,66,0.1);color:#f5c842}
+        .pr-source{font-size:0.72rem;color:#71717a;font-style:italic}
+        .pr-sel{accent-color:#f97316;width:16px;height:16px;flex-shrink:0;cursor:pointer}
+        .pr-item-sel{border-color:rgba(249,115,22,0.4)!important}
+        .pr-stale-banner{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(245,200,66,0.07);border:1px solid rgba(245,200,66,0.25);border-radius:12px;padding:0.75rem 1rem;font-size:0.84rem;color:#e4e4e7;margin-bottom:0.75rem}
+        .pr-stale-banner b{color:#f5c842}
+        .pr-btn-ok{padding:0.4rem 0.8rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:#22c55e;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;font-family:inherit}
+        .pr-toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:0.6rem}
+        .pr-mine-search{flex:1;min-width:200px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#f4f4f5;font-size:0.85rem;padding:0.55rem 0.8rem;font-family:inherit;outline:none}
+        .pr-chip{padding:0.4rem 0.8rem;border-radius:999px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#a1a1aa;font-size:0.78rem;cursor:pointer;font-family:inherit}
+        .pr-chip.on{background:rgba(249,115,22,0.12);border-color:rgba(249,115,22,0.35);color:#f97316}
+        .pr-bulk{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:0.6rem;min-height:34px}
+        .pr-bulk-btns{display:flex;gap:6px;flex-wrap:wrap}
+        .pr-bulk-btns button{padding:0.4rem 0.8rem;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e4e4e7;font-size:0.78rem;cursor:pointer;font-family:inherit}
+        .pr-bulk-btns button.danger{color:#f87171;border-color:rgba(239,68,68,0.3)}
         .pr-offer-price{font-size:0.78rem;color:#f5c842;font-weight:600}
         .pr-offer-price span{font-size:0.7rem;color:#71717a;font-weight:400}
         .pr-item-btns{display:flex;gap:6px}

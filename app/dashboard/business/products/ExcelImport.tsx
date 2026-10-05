@@ -167,7 +167,7 @@ export default function ExcelImport({ businessId, businessName, catalog, linkedP
         const exists = linkedProductIds.has(productId);
         if (exists) updated++; else linked++;
         ops.push(b => b.set(doc(db, "business_products", `${businessId}_${productId}`), {
-          businessId, productId, price: r.price, inStock: r.inStock, updatedAt: serverTimestamp(),
+          businessId, productId, price: r.price, inStock: r.inStock, sourceName: r.name.slice(0, 200), updatedAt: serverTimestamp(),
           ...(exists ? {} : { createdAt: serverTimestamp(), featured: false, offerPrice: null, offerEnd: null }),
         }, { merge: true }));
       });
