@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { searchWords, matchesAllWords } from "@/lib/searchKeywords";
+import { collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, documentId, limit } from "firebase/firestore";
+import { searchWords, matchesAllWords, pickMainTerm } from "@/lib/searchKeywords";
 import { extractWords } from "@/lib/productMatcher";
 import ExcelImport from "./ExcelImport";
 import { PLANS, PlanDef, getEffectivePlan, remainingSlots } from "@/lib/plans";
 import Link from "next/link";
+
+// Katalogu i plotë ruhet në browser për 12 orë — ngarkohet vetëm për Excel-in
+const CATALOG_CACHE_KEY = "nb_catalog_v1";
+const CATALOG_CACHE_MS = 12 * 60 * 60 * 1000;
 
 interface ProductRequest {
   id: string;
@@ -61,6 +65,9 @@ export default function BusinessProductsPage() {
   const [loading, setLoading] = useState(true);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<CatalogProduct[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ price: "", inStock: true, hasOffer: false, offerPrice: "", offerEnd: "" });
@@ -90,40 +97,38 @@ export default function BusinessProductsPage() {
         setBusinessName(String(bizData?.name || bizData?.businessName || ""));
         setPlan(getEffectivePlan(bizData || null));
 
-        // Ngarko katalogun një herë — përdoret edhe për emrat/fotot e produkteve të mia
-        const catSnap = await getDocs(collection(db, "products"));
-        const cat = catSnap.docs.map(d => ({ id: d.id, ...d.data() } as CatalogProduct));
-        setCatalog(cat);
-
-        // Ngarko produktet e mia dhe kërkesat
-        await Promise.all([loadMyProducts(bid, cat), loadRequests(bid)]);
+        // Ngarko vetëm produktet e mia dhe kërkesat — JO gjithë katalogun
+        await Promise.all([loadMyProducts(bid), loadRequests(bid)]);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
     init();
   }, [user]);
 
-  const loadMyProducts = async (bid: string, cat: CatalogProduct[] = catalog) => {
+  const loadMyProducts = async (bid: string) => {
     const q = query(collection(db, "business_products"), where("businessId", "==", bid));
     const snap = await getDocs(q);
-    const byId = new Map(cat.map(c => [c.id, c] as [string, CatalogProduct]));
+
+    // Lexo vetëm produktet e këtij biznesi, në grupe nga 30 (kufiri i Firestore për "in")
+    const ids = Array.from(new Set(snap.docs.map(d => d.data().productId).filter(Boolean))) as string[];
+    const byId = new Map<string, CatalogProduct>();
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+    await Promise.all(chunks.map(async chunk => {
+      try {
+        const ps = await getDocs(query(collection(db, "products"), where(documentId(), "in", chunk)));
+        ps.docs.forEach(p => byId.set(p.id, { id: p.id, ...p.data() } as CatalogProduct));
+      } catch (e) { console.error(e); }
+    }));
+
     const prods: MyProduct[] = [];
     for (const d of snap.docs) {
       const data = d.data();
       let name = "", image = "", category = "", missing = true;
       const known = data.productId ? byId.get(data.productId) : undefined;
       if (known) {
-        // Nga katalogu që kemi ngarkuar tashmë — pa lexime shtesë
         name = known.name; image = known.images?.[0] || ""; category = known.category;
         missing = (known.status || "active") !== "active";
-      } else if (data.productId) {
-        try {
-          const ps = await getDoc(doc(db, "products", data.productId));
-          if (ps.exists()) {
-            name = ps.data().name; image = ps.data().images?.[0] || ""; category = ps.data().category;
-            missing = (ps.data().status || "active") !== "active";
-          }
-        } catch {}
       }
       prods.push({ id: d.id, productId: data.productId, name, image, category, price: data.price || 0, inStock: data.inStock ?? true, offerPrice: data.offerPrice || undefined, offerEnd: data.offerEnd || undefined, missing });
     }
@@ -131,6 +136,55 @@ export default function BusinessProductsPage() {
     prods.sort((a, b) => Number(!!b.missing) - Number(!!a.missing));
     setMyProducts(prods);
   };
+
+  // Kërkimi te "Shto produkt" — direkt në databazë me fjalët kyçe (max ~60 lexime)
+  useEffect(() => {
+    const words = searchWords(catalogSearch);
+    const main = pickMainTerm(words);
+    if (!main) { setSearchResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const snap = await getDocs(query(collection(db, "products"), where("searchKeywords", "array-contains", main), limit(60)));
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...d.data() } as CatalogProduct))
+          .filter(c => (c.status || "active") === "active")
+          .filter(c => matchesAllWords(`${c.name} ${c.brand || ""}`, words))
+          .slice(0, 50);
+        setSearchResults(list);
+      } catch (e) { console.error(e); setSearchResults([]); }
+      finally { setSearching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [catalogSearch]);
+
+  // Katalogu i plotë — vetëm kur hapet tab-i Excel, dhe ruhet në browser
+  useEffect(() => {
+    if (tab !== "excel" || catalog.length > 0 || !plan.excel) return;
+    const load = async () => {
+      try {
+        const cached = localStorage.getItem(CATALOG_CACHE_KEY);
+        if (cached) {
+          const { at, items } = JSON.parse(cached) as { at: number; items: CatalogProduct[] };
+          if (Date.now() - at < CATALOG_CACHE_MS && items.length > 0) { setCatalog(items); return; }
+        }
+      } catch {}
+      setCatalogLoading(true);
+      try {
+        const snap = await getDocs(collection(db, "products"));
+        // Ruajmë vetëm produktet aktive dhe fushat që duhen për krahasimin
+        const items = snap.docs.filter(d => (d.data().status || "active") === "active").map(d => {
+          const p = d.data();
+          return { id: d.id, name: p.name || "", category: p.category || "", brand: p.brand || "", barcode: p.barcode || "",
+                   images: p.images?.[0] ? [p.images[0]] : [], status: "active" } as CatalogProduct;
+        });
+        setCatalog(items);
+        try { localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ at: Date.now(), items })); } catch {}
+      } catch (e) { console.error(e); }
+      finally { setCatalogLoading(false); }
+    };
+    load();
+  }, [tab, catalog.length, plan.excel]);
 
   const loadRequests = async (bid: string) => {
     try {
@@ -221,9 +275,7 @@ export default function BusinessProductsPage() {
   // dhe maksimumi 50 rezultate që faqja të mos rëndohet
   const activeCatalog = catalog.filter(c => (c.status || "active") === "active");
   const searchTerms = searchWords(catalogSearch);
-  const filteredCatalog = searchTerms.length === 0 ? [] : activeCatalog
-    .filter(c => matchesAllWords(`${c.name} ${c.brand || ""} ${c.category || ""}`, searchTerms))
-    .slice(0, 50);
+  const filteredCatalog = searchResults;
   const pendingRequestNames = new Set(
     requests.filter(r => r.status === "pending").map(r => extractWords(r.name).join(" "))
   );
@@ -276,6 +328,12 @@ export default function BusinessProductsPage() {
               <p className="pr-empty-title">Ngarkimi me Excel është nga paketa Bazë</p>
               <p className="pr-empty-sub">Me paketën Bazë (€10/muaj) shton deri në 300 produkte njëherësh nga Excel-i dhe vendos oferta.</p>
               <Link href="/dashboard/business" className="pr-empty-btn">Shiko paketat</Link>
+            </div>
+          ) : catalogLoading || catalog.length === 0 ? (
+            <div className="pr-empty">
+              <span className="pr-empty-icon">⏳</span>
+              <p className="pr-empty-title">Duke përgatitur katalogun...</p>
+              <p className="pr-empty-sub">Kjo ndodh vetëm herën e parë dhe zgjat disa sekonda.</p>
             </div>
           ) : (
           <ExcelImport
@@ -428,6 +486,11 @@ export default function BusinessProductsPage() {
               <p className="pr-empty-title">Kërko produktin që shet</p>
               <p className="pr-empty-sub">Shkruaj emrin, p.sh. "silikon" ose "celes 13". Për shumë produkte njëherësh, përdor "Ngarko me Excel".</p>
               <button onClick={() => setTab("excel")} className="pr-empty-btn">📥 Ngarko me Excel</button>
+            </div>
+          ) : searching && filteredCatalog.length === 0 ? (
+            <div className="pr-empty">
+              <span className="pr-empty-icon">🔍</span>
+              <p className="pr-empty-title">Duke kërkuar...</p>
             </div>
           ) : filteredCatalog.length === 0 ? (
             <div className="pr-empty">
