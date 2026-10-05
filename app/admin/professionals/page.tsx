@@ -6,6 +6,7 @@ import { db } from "@/lib/firebase/config";
 import { Professional } from "@/types";
 import { PRO_PLANS, PRO_PLAN_ORDER, normalizeProPlanId, getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
 import { getSubscriptionState, toDate, formatDate } from "@/lib/subscription";
+import { recordPayment } from "@/lib/payments";
 
 type Pro = Professional & Record<string, any>;
 const DURATIONS = [1, 3, 6, 12];
@@ -70,6 +71,8 @@ export default function AdminProfessionalsPage() {
         lastPayment: { plan, months: m, amountEur: PRO_PLANS[plan].priceEur * m, method, date: today },
       };
       await updateDoc(doc(db, "professionals", p.id), update);
+      await recordPayment({ type: "professional", entityId: p.id, name: String(p.name || ""), plan, planName: PRO_PLANS[plan].name,
+        months: m, amountEur: PRO_PLANS[plan].priceEur * m, method, date: today, kind: samePlanActive ? "rinovim" : "aprovim" });
       setProfessionals(prev => prev.map(x => x.id === p.id ? ({ ...x, ...update, requestedPlan: undefined } as unknown as Pro) : x));
     } catch (e) { console.error(e); alert("Gabim gjatë aktivizimit."); }
     finally { setBusy(null); }

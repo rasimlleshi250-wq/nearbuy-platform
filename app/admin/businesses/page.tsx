@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc, where, getCountFromServer } from "firebase/firestore";
 import { PLANS as PLAN_DEFS, PLAN_ORDER, normalizePlanId, getEffectivePlan } from "@/lib/plans";
 import { getSubscriptionState } from "@/lib/subscription";
+import { recordPayment } from "@/lib/payments";
 import { db } from "@/lib/firebase/config";
 import Link from "next/link";
 
@@ -117,6 +118,8 @@ export default function AdminBusinessesPage() {
       paymentMethod: method,
       lastPayment: { plan, months: m, amountEur: PLAN_DEFS[plan].priceEur * m, method, date: start },
     });
+    await recordPayment({ type: "business", entityId: id, name: biz?.name || "", plan, planName: PLAN_DEFS[plan].name,
+      months: m, amountEur: PLAN_DEFS[plan].priceEur * m, method, date: start, kind: samePlanActive ? "rinovim" : "aprovim" });
     setBusinesses(prev => prev.map(b =>
       b.id === id ? { ...b, subscription: plan, planStatus: "active", requestedPlan: undefined, subscriptionEnd: end,
         subscriptionStart: samePlanActive && b.subscriptionStart ? b.subscriptionStart : start, paymentMethod: method } : b
@@ -144,6 +147,8 @@ export default function AdminBusinessesPage() {
       paymentMethod: method,
       lastPayment: { plan, months: m, amountEur: PLAN_DEFS[plan].priceEur * m, method, date: today },
     });
+    await recordPayment({ type: "business", entityId: id, name: biz?.name || "", plan, planName: PLAN_DEFS[plan].name,
+      months: m, amountEur: PLAN_DEFS[plan].priceEur * m, method, date: today, kind: "rinovim" });
     setBusinesses(prev => prev.map(b => b.id === id ? { ...b, subscriptionEnd: newEndStr, planStatus: "active", paymentMethod: method } : b));
   };
 
