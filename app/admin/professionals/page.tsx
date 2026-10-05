@@ -4,17 +4,35 @@ import { useState, useEffect } from "react";
 import { collection, getDocs, query, orderBy, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
 import { Professional } from "@/types";
+import { PRO_PLANS, PRO_PLAN_ORDER, normalizeProPlanId, getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
+import { getSubscriptionState } from "@/lib/subscription";
+
+type Pro = Professional & Record<string, any>;
+const DURATIONS = [1, 3, 6, 12];
+const PAYMENT_METHODS = ["Cash", "Transfertë", "Kartë"];
+
+function addMonths(fromIso: string | undefined, months: number): string {
+  const base = fromIso && new Date(fromIso) > new Date() ? new Date(fromIso) : new Date();
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().split("T")[0];
+}
+const raw = (p: Pro) => p as unknown as Record<string, unknown>;
 
 export default function AdminProfessionalsPage() {
-  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [professionals, setProfessionals] = useState<Pro[]>([]);
+  const [months, setMonths] = useState<Record<string, number>>({});
+  const [payMethod, setPayMethod] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "pending" | "verified">("all");
+  const [filter, setFilter] = useState<"all" | "pending" | "verified" | "requests">("all");
 
   useEffect(() => {
     const fetch = async () => {
       const q = query(collection(db, "professionals"), orderBy("createdAt", "desc"));
       const snap = await getDocs(q);
-      setProfessionals(snap.docs.map(d => ({ id: d.id, ...d.data() } as Professional)));
+      setProfessionals(snap.docs.map(d => ({ id: d.id, ...d.data() } as Pro)));
       setLoading(false);
     };
     fetch();
@@ -31,18 +49,47 @@ export default function AdminProfessionalsPage() {
     ));
   };
 
-  const toggleFeatured = async (id: string, current: boolean) => {
-    await updateDoc(doc(db, "professionals", id), { featured: !current });
-    setProfessionals(prev => prev.map(p => p.id === id ? { ...p, featured: !current } : p));
+  // Aprovon paketën e kërkuar, ose rinovon atë aktuale, për N muaj
+  const activatePlan = async (p: Pro, planIdRaw: string) => {
+    const plan = normalizeProPlanId(planIdRaw);
+    if (plan === "free") return;
+    const m = months[p.id] || 1;
+    const method = payMethod[p.id] || "Cash";
+    const st = getSubscriptionState({ ...raw(p), subscription: normalizeProPlanId(p.subscription) });
+    const samePlanActive = normalizeProPlanId(p.subscription) === plan && st.active;
+    const today = new Date().toISOString().split("T")[0];
+    const end = addMonths(samePlanActive ? p.subscriptionEnd : undefined, m);
+    setBusy(p.id);
+    try {
+      const update = {
+        subscription: plan, planStatus: "active", requestedPlan: null,
+        subscriptionStart: samePlanActive && p.subscriptionStart ? p.subscriptionStart : today,
+        subscriptionEnd: end, paymentMethod: method,
+        lastPayment: { plan, months: m, amountEur: PRO_PLANS[plan].priceEur * m, method, date: today },
+      };
+      await updateDoc(doc(db, "professionals", p.id), update);
+      setProfessionals(prev => prev.map(x => x.id === p.id ? { ...x, ...update, requestedPlan: undefined } : x));
+    } catch (e) { console.error(e); alert("Gabim gjatë aktivizimit."); }
+    finally { setBusy(null); }
+  };
+
+  const rejectPlan = async (p: Pro) => {
+    await updateDoc(doc(db, "professionals", p.id), { requestedPlan: null, planStatus: getSubscriptionState({ ...raw(p), subscription: normalizeProPlanId(p.subscription) }).active ? "active" : "rejected" });
+    setProfessionals(prev => prev.map(x => x.id === p.id ? { ...x, requestedPlan: undefined, planStatus: "rejected" } : x));
   };
 
   const filtered = professionals.filter(p => {
+    if (search && !`${p.name} ${p.phone} ${p.city}`.toLowerCase().includes(search.toLowerCase())) return false;
     if (filter === "pending") return !p.verified;
     if (filter === "verified") return p.verified;
+    if (filter === "requests") return p.planStatus === "pending" && p.requestedPlan;
     return true;
   });
 
   const pending = professionals.filter(p => !p.verified).length;
+  const planRequests = professionals.filter(p => p.planStatus === "pending" && p.requestedPlan).length;
+  const paid = professionals.map(p => getEffectiveProPlan(raw(p))).filter(pl => pl.priceEur > 0);
+  const mrr = paid.reduce((n, pl) => n + pl.priceEur, 0);
 
   return (
     <div>
@@ -50,7 +97,8 @@ export default function AdminProfessionalsPage() {
         <div className="adm-header-row">
           <div>
             <h1>Profesionistët</h1>
-            <p>{professionals.length} gjithsej · {pending} në pritje aprovimi</p>
+            <p>{professionals.length} gjithsej · {pending} në pritje aprovimi · {planRequests} kërkesa paketash</p>
+            <p className="adm-mrr">💶 {paid.length} paketa aktive · <b>€{mrr}/muaj</b></p>
           </div>
         </div>
       </div>
@@ -62,12 +110,13 @@ export default function AdminProfessionalsPage() {
       )}
 
       <div className="adm-filters">
-        {(["all", "pending", "verified"] as const).map(f => (
+        {(["all", "pending", "verified", "requests"] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={`adm-filter-btn ${filter === f ? "active" : ""}`}>
-            {f === "all" ? "Të gjitha" : f === "pending" ? "Në pritje" : "Aprovuar"}
+            {f === "all" ? "Të gjitha" : f === "pending" ? "Në pritje" : f === "verified" ? "Aprovuar" : `Kërkesa paketash${planRequests ? ` (${planRequests})` : ""}`}
           </button>
         ))}
+        <input className="adm-search" placeholder="🔍 Kërko emër, telefon, qytet..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {loading ? (
@@ -83,6 +132,7 @@ export default function AdminProfessionalsPage() {
                 <th>Profesioni</th>
                 <th>Qyteti</th>
                 <th>Telefoni</th>
+                <th>Paketa</th>
                 <th>Aprovuar</th>
                 <th>Featured</th>
               </tr>
@@ -102,9 +152,49 @@ export default function AdminProfessionalsPage() {
                       </div>
                     </div>
                   </td>
-                  <td><span className="adm-badge">{p.profession || "—"}</span></td>
-                  <td><span className="adm-text-muted">{p.city || "—"}</span></td>
+                  <td><span className="adm-badge">{normalizeProfession(p.profession) || "—"}</span></td>
+                  <td><span className="adm-text-muted">{(Array.isArray(p.zones) && p.zones.length ? p.zones : [p.city]).filter(Boolean).join(", ") || "—"}</span></td>
                   <td><span className="adm-text-muted">{p.phone || "—"}</span></td>
+                  <td>{(() => {
+                    const st = getSubscriptionState({ ...raw(p), subscription: normalizeProPlanId(p.subscription) });
+                    const def = PRO_PLANS[normalizeProPlanId(p.subscription)];
+                    const color = st.expired ? "#71717a" : def.color;
+                    const sel = (
+                      <div className="adm-renew-row">
+                        <select className="adm-mini-sel" value={months[p.id] || 1} onChange={e => setMonths(m => ({ ...m, [p.id]: Number(e.target.value) }))}>
+                          {DURATIONS.map(d => <option key={d} value={d}>{d} muaj</option>)}
+                        </select>
+                        <select className="adm-mini-sel" value={payMethod[p.id] || "Cash"} onChange={e => setPayMethod(m => ({ ...m, [p.id]: e.target.value }))}>
+                          {PAYMENT_METHODS.map(x => <option key={x} value={x}>{x}</option>)}
+                        </select>
+                      </div>
+                    );
+                    return (
+                      <div className="adm-plan-cell">
+                        <span className="adm-plan-badge" style={{ color, borderColor: `${color}55`, background: `${color}15` }}>
+                          {def.name}{st.expired ? " · skaduar" : ""}
+                        </span>
+                        {st.endDate && def.id !== "free" && <span className="adm-text-muted" style={{ fontSize: "0.7rem" }}>deri {p.subscriptionEnd}</span>}
+                        {p.planStatus === "pending" && p.requestedPlan ? (
+                          <>
+                            <span className="adm-req">Kërkon: {PRO_PLANS[normalizeProPlanId(p.requestedPlan)].name} · €{PRO_PLANS[normalizeProPlanId(p.requestedPlan)].priceEur * (months[p.id] || 1)}</span>
+                            {sel}
+                            <div className="adm-renew-row">
+                              <button className="adm-ok" disabled={busy === p.id} onClick={() => activatePlan(p, p.requestedPlan)}>✓ Aprovo</button>
+                              <button className="adm-no" onClick={() => rejectPlan(p)}>✕</button>
+                            </div>
+                          </>
+                        ) : def.id !== "free" ? (
+                          <>{sel}<button className="adm-renew" disabled={busy === p.id} onClick={() => activatePlan(p, def.id)}>↻ Rinovo</button></>
+                        ) : (
+                          <select className="adm-mini-sel" value="" onChange={e => e.target.value && activatePlan(p, e.target.value)}>
+                            <option value="">Aktivizo paketë...</option>
+                            {PRO_PLAN_ORDER.filter(x => x !== "free").map(x => <option key={x} value={x}>{PRO_PLANS[x].name} (€{PRO_PLANS[x].priceEur})</option>)}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })()}</td>
                   <td>
                     <button onClick={() => toggleVerified(p.id, p.verified)}
                       className={`adm-toggle-btn ${p.verified ? "on" : "off"}`}>
@@ -112,10 +202,10 @@ export default function AdminProfessionalsPage() {
                     </button>
                   </td>
                   <td>
-                    <button onClick={() => toggleFeatured(p.id, p.featured)}
-                      className={`adm-toggle-btn ${p.featured ? "on" : "off"}`}>
-                      {p.featured ? "⭐ Po" : "— Jo"}
-                    </button>
+                    {/* Featured vjen automatikisht nga paketa Premium aktive */}
+                    <span className={`adm-toggle-btn ${getEffectiveProPlan(raw(p)).featured ? "on" : "off"}`} title="Automatik nga Premium">
+                      {getEffectiveProPlan(raw(p)).featured ? "⭐ Po" : "— Jo"}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -150,6 +240,18 @@ export default function AdminProfessionalsPage() {
         .adm-text-muted{font-size:0.85rem;color:#71717a}
         .adm-toggle-btn{border:none;border-radius:6px;padding:4px 12px;font-size:0.75rem;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}
         .adm-toggle-btn.on{background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.25)}
+        .adm-mrr{font-size:0.82rem;color:#a1a1aa;margin-top:4px}
+        .adm-mrr b{color:#22c55e}
+        .adm-search{margin-left:auto;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;color:#f4f4f5;font-size:0.82rem;padding:0.45rem 0.8rem;font-family:inherit;min-width:220px;outline:none}
+        .adm-filters{flex-wrap:wrap;align-items:center}
+        .adm-plan-cell{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+        .adm-plan-badge{font-size:0.72rem;font-weight:600;padding:2px 8px;border-radius:6px;border:1px solid}
+        .adm-req{font-size:0.72rem;color:#93c5fd;font-weight:600}
+        .adm-renew-row{display:flex;gap:4px;flex-wrap:wrap}
+        .adm-mini-sel{background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e4e4e7;font-size:0.72rem;padding:3px 4px;font-family:inherit}
+        .adm-ok{padding:3px 10px;border-radius:6px;border:1px solid rgba(34,197,94,0.3);background:rgba(34,197,94,0.12);color:#22c55e;font-size:0.72rem;font-weight:600;cursor:pointer;font-family:inherit}
+        .adm-no{padding:3px 8px;border-radius:6px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.08);color:#f87171;font-size:0.72rem;cursor:pointer;font-family:inherit}
+        .adm-renew{padding:3px 8px;border-radius:5px;border:1px solid rgba(59,130,246,0.3);background:rgba(59,130,246,0.1);color:#60a5fa;font-size:0.72rem;cursor:pointer;font-family:inherit}
         .adm-toggle-btn.off{background:rgba(239,68,68,0.08);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
       `}</style>
     </div>

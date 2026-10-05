@@ -9,6 +9,8 @@ import { signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase/config";
 import { doc, getDoc } from "firebase/firestore";
 import { Professional } from "@/types";
+import { getEffectiveProPlan, normalizeProPlanId, normalizeProfession, PRO_PLANS } from "@/lib/proPlans";
+import { getSubscriptionState } from "@/lib/subscription";
 
 const NAV = [
   { href: "/dashboard/professional", label: "Overview", icon: "⊞", exact: true },
@@ -68,6 +70,19 @@ export default function ProfessionalLayout({ children }: { children: React.React
             <div>
               <span className="pro-brand-name">NearBuy<em>.al</em></span>
               <span className="pro-role-badge">Profesionist</span>
+              {professional && (() => {
+                const raw = professional as unknown as Record<string, unknown>;
+                const eff = getEffectiveProPlan(raw);
+                const st = getSubscriptionState({ ...raw, subscription: normalizeProPlanId(raw.subscription) });
+                const stored = PRO_PLANS[normalizeProPlanId(raw.subscription)];
+                const color = st.expired ? "#71717a" : eff.color;
+                return (
+                  <span className="pro-plan-badge" style={{ color, borderColor: `${color}55`, background: `${color}18` }}>
+                    {st.expired ? `${stored.name} · skaduar` : eff.name}
+                    {!st.expired && st.active && st.daysLeft !== null && st.daysLeft <= 7 ? ` · ${st.daysLeft} ditë` : ""}
+                  </span>
+                );
+              })()}
             </div>
           </Link>
 
@@ -78,7 +93,7 @@ export default function ProfessionalLayout({ children }: { children: React.React
               </div>
               <div>
                 <p className="pro-prof-name">{professional.name}</p>
-                <p className="pro-prof-job">{professional.profession}</p>
+                <p className="pro-prof-job">{normalizeProfession(professional.profession)}</p>
                 <p className="pro-prof-city">📍 {professional.city}</p>
               </div>
             </div>
@@ -136,6 +151,7 @@ export default function ProfessionalLayout({ children }: { children: React.React
         .pro-brand-name{font-size:1rem;font-weight:700;color:#fff;letter-spacing:-0.02em;display:block;line-height:1.2}
         .pro-brand-name em{color:#f97316;font-style:normal}
         .pro-role-badge{font-size:0.65rem;background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.25);border-radius:4px;padding:1px 6px;font-weight:600;display:inline-block;margin-top:2px}
+        .pro-plan-badge{font-size:0.62rem;padding:1px 7px;border-radius:4px;font-weight:600;border:1px solid;display:inline-block;margin-top:3px;margin-left:3px}
         .pro-profile-info{display:flex;align-items:center;gap:10px;padding:0.75rem;background:rgba(255,255,255,0.04);border-radius:10px;margin-bottom:1.25rem;border:1px solid rgba(255,255,255,0.07)}
         .pro-avatar-lg{width:42px;height:42px;border-radius:50%;background:rgba(168,85,247,0.2);border:2px solid rgba(168,85,247,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
         .pro-avatar-lg img{width:100%;height:100%;object-fit:cover}
