@@ -7,6 +7,7 @@
 import { useMemo, useState } from "react";
 import { db } from "@/lib/firebase/config";
 import { collection, doc, writeBatch, serverTimestamp } from "firebase/firestore";
+import { notify } from "@/lib/notify";
 import { ProductMatcher, MatchResult, parsePrice, parseStock, extractWords } from "@/lib/productMatcher";
 
 export interface ImportCatalogItem {
@@ -184,6 +185,7 @@ export default function ExcelImport({ businessId, businessName, catalog, linkedP
         await batch.commit();
       }
       setSummary({ linked, updated, requested: requests.size });
+      if (requests.size > 0) notify("product_requests", businessId);
       setStep("done");
       onDone();
     } catch (e) {

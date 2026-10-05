@@ -5,6 +5,7 @@
 import { db } from "@/lib/firebase/config";
 import { collection, doc, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from "firebase/firestore";
 import { getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
+import { notify } from "@/lib/notify";
 
 export const URGENCY = ["Sot / urgjent", "Këtë javë", "S'ka nxitim"];
 export const STANDARD_DELAY_MS = 2 * 60 * 60 * 1000;
@@ -61,5 +62,6 @@ export async function submitJobRequest(input: JobInput): Promise<number> {
     });
   });
   await batch.commit();
+  notify("job_request", reqRef.id);
   return Math.min(targets.length, 40);
 }

@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase/config";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 import { getTotalStats, getLast30DaysStats, getTopProducts, getMonthComparison } from "@/lib/firebase/analytics";
 import Link from "next/link";
 import { getSubscriptionState, formatDate } from "@/lib/subscription";
+import { notify } from "@/lib/notify";
 import { PLANS as PLAN_DEFS, PLAN_ORDER, getEffectivePlan, hasStats, normalizePlanId, formatEur } from "@/lib/plans";
 
 interface Business {
@@ -136,7 +137,8 @@ export default function BusinessOverviewPage() {
     if (business.requestedPlan === planId && business.planStatus === "pending") return;
     setRequesting(true);
     try {
-      await updateDoc(doc(db, "businesses", docId), { requestedPlan: planId, planStatus: "pending" });
+      await updateDoc(doc(db, "businesses", docId), { requestedPlan: planId, planStatus: "pending", planRequestedAt: serverTimestamp() });
+      notify("plan_request", docId, "business");
       setBusiness(p => p ? { ...p, requestedPlan: planId, planStatus: "pending" } : p);
       setRequestedSuccess(planId);
       setTimeout(() => setRequestedSuccess(""), 4000);

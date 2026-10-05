@@ -5,6 +5,7 @@
 import { db } from "@/lib/firebase/config";
 import { collection, doc, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from "firebase/firestore";
 import { getEffectivePlan } from "@/lib/plans";
+import { notify } from "@/lib/notify";
 
 export const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
 export const PLUS_DELAY_MS = 2 * 60 * 60 * 1000;
@@ -62,5 +63,6 @@ export async function submitCustomerRequest(input: LeadInput): Promise<number> {
     });
   });
   await batch.commit();
+  notify("customer_request", reqRef.id);
   return Math.min(targets.length, 40);
 }

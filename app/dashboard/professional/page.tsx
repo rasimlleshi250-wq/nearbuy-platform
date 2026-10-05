@@ -9,6 +9,7 @@ import Link from "next/link";
 import { PRO_PLANS, PRO_PLAN_ORDER, ProPlanId, getEffectiveProPlan, normalizeProPlanId, normalizeProfession } from "@/lib/proPlans";
 import { getSubscriptionState, formatDate } from "@/lib/subscription";
 import { formatEur } from "@/lib/plans";
+import { notify } from "@/lib/notify";
 
 interface Stats { totalViews: number; totalContacts: number }
 type Pro = Record<string, any> & { id: string };
@@ -44,6 +45,7 @@ export default function ProfessionalDashboardPage() {
       await updateDoc(doc(db, "professionals", user.uid), { requestedPlan: id, planStatus: "pending", planRequestedAt: serverTimestamp() });
       setPro(p => (p ? { ...p, requestedPlan: id, planStatus: "pending" } : p));
       setRequested(id);
+      notify("plan_request", user.uid, "professional");
     } catch (e) { console.error(e); alert("Kërkesa nuk u dërgua. Provo përsëri."); }
     finally { setRequesting(false); }
   };
