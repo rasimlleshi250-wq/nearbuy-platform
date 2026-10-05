@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs, limit } from "firebase/firestore";
+import { collection, query, where, getDocs, limit, documentId } from "firebase/firestore";
 import { getEffectivePlan } from "@/lib/plans";
 import { getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
 
@@ -26,6 +26,9 @@ interface Product {
   images?: string[];
   brand?: string;
   status: string;
+  minPrice?: number;     // çmimi më i ulët në dyqane
+  oldPrice?: number;     // çmimi para ofertës
+  shopCount?: number;
 }
 
 interface Professional {
@@ -60,6 +63,7 @@ const HOW_IT_WORKS = [
 export default function HomePage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [mode, setMode] = useState<"products" | "pros">("products");
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [loadingBiz, setLoadingBiz] = useState(true);
@@ -106,11 +110,39 @@ export default function HomePage() {
     loadBusinesses();
     loadProfessionals();
 
+    // "Ofertat në dyqanet e zonës": vetëm produkte që i shet të paktën një dyqan
     const loadProducts = async () => {
       try {
-        const q = query(collection(db, "products"), where("status", "==", "active"), limit(8));
-        const snap = await getDocs(q);
-        setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
+        const bpSnap = await getDocs(query(collection(db, "business_products"), where("inStock", "==", true), limit(60)));
+        const bps = bpSnap.docs.map(d => d.data() as { productId: string; businessId: string; price: number; offerPrice?: number });
+        const bizIds = Array.from(new Set(bps.map(b => b.businessId)));
+        const prodIds = Array.from(new Set(bps.map(b => b.productId))).slice(0, 60);
+
+        // Bizneset: vetëm të verifikuara, dhe ofertat vlejnë vetëm nëse paketa i përfshin
+        const bizInfo = new Map<string, { ok: boolean; offers: boolean }>();
+        for (let i = 0; i < bizIds.length; i += 30) {
+          const bs = await getDocs(query(collection(db, "businesses"), where(documentId(), "in", bizIds.slice(i, i + 30))));
+          bs.docs.forEach(d => { const raw = d.data(); bizInfo.set(d.id, { ok: !!raw.verified && !raw.blocked, offers: getEffectivePlan(raw).offers }); });
+        }
+        const prodMap = new Map<string, Product>();
+        for (let i = 0; i < prodIds.length; i += 30) {
+          const ps = await getDocs(query(collection(db, "products"), where(documentId(), "in", prodIds.slice(i, i + 30))));
+          ps.docs.forEach(d => { const raw = d.data(); if ((raw.status || "active") === "active") prodMap.set(d.id, { id: d.id, ...raw } as Product); });
+        }
+
+        bps.forEach(bp => {
+          const p = prodMap.get(bp.productId);
+          const biz = bizInfo.get(bp.businessId);
+          if (!p || !biz?.ok) return;
+          const offer = biz.offers && bp.offerPrice && bp.offerPrice < bp.price ? bp.offerPrice : undefined;
+          const price = offer || bp.price;
+          p.shopCount = (p.shopCount || 0) + 1;
+          if (p.minPrice === undefined || price < p.minPrice) { p.minPrice = price; p.oldPrice = offer ? bp.price : undefined; }
+        });
+
+        const list = Array.from(prodMap.values()).filter(p => p.shopCount)
+          .sort((a, b) => Number(!!b.oldPrice) - Number(!!a.oldPrice) || (b.shopCount || 0) - (a.shopCount || 0) || (b.images?.length ? 1 : 0) - (a.images?.length ? 1 : 0));
+        setProducts(list.slice(0, 8));
       } catch (e) { console.error(e); }
       finally { setLoadingProd(false); }
     };
@@ -119,8 +151,10 @@ export default function HomePage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-    router.push(`/products?search=${encodeURIComponent(searchQuery.trim())}`);
+    const q = searchQuery.trim();
+    if (mode === "pros") { router.push(q ? `/professionals?q=${encodeURIComponent(q)}` : "/professionals?request=1"); return; }
+    if (!q) return;
+    router.push(`/products?search=${encodeURIComponent(q)}`);
   };
 
   return (
@@ -140,12 +174,16 @@ export default function HomePage() {
         <div className="nb-hero-glow" />
         <div className="nb-hero-grid" />
         <div className="nb-hero-content">
-          <div className="nb-hero-badge">🇦🇱 NearBuy.al — Platforma #1 në Shqipëri</div>
+          <div className="nb-hero-badge">🇦🇱 Dyqane dhe mjeshtër të verifikuar në gjithë Shqipërinë</div>
           <h1 className="nb-hero-title">
             Gjej produktin që dëshiron<br />
             <span className="nb-hero-accent">afër teje, çmimi më i mirë.</span>
           </h1>
-          <p className="nb-hero-sub">Kërko produkte dhe profesionistë afër teje në gjithë Shqipërinë</p>
+          <p className="nb-hero-sub">Krahaso çmimet e dyqaneve pranë teje, ose gjej mjeshtrin e duhur për punën tënde.</p>
+          <div className="nb-mode">
+            <button type="button" onClick={() => setMode("products")} className={mode === "products" ? "on" : ""}>🔍 Produkte</button>
+            <button type="button" onClick={() => setMode("pros")} className={mode === "pros" ? "on" : ""}>🛠 Mjeshtër</button>
+          </div>
 
           <form onSubmit={handleSearch} className="nb-search">
             <div className="nb-search-icon">
@@ -153,20 +191,18 @@ export default function HomePage() {
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
               </svg>
             </div>
-            <input type="text" placeholder="Kërko produkte, shërbime..." className="nb-search-input" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            <input type="text" placeholder={mode === "products" ? "Çfarë po kërkon? p.sh. silikon, bojler, kabllo..." : "Çfarë mjeshtri? p.sh. hidraulik, elektricist..."} className="nb-search-input" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
             <button type="submit" className="nb-search-btn">Kërko</button>
           </form>
 
           <div className="nb-tags">
-            {[
-              { label: "🔧 Hidraulikë", q: "Hidraulikë" },
-              { label: "⚡ Elektrik", q: "Elektrik" },
-              { label: "🏗️ Ndërtim", q: "Ndërtim" },
-              { label: "🎨 Bojëra", q: "Bojëra & Kimikate" },
-              { label: "🌿 Kopshtari", q: "Kopshtari" },
-            ].map(tag => (
-              <button key={tag.q} onClick={() => router.push(`/products?category=${encodeURIComponent(tag.q)}`)} className="nb-tag">{tag.label}</button>
+            {(mode === "products"
+              ? ["silikon", "bojler", "kabllo", "pllaka", "llambe led", "boje"].map(t => ({ label: t, href: `/products?search=${encodeURIComponent(t)}` }))
+              : ["Hidraulik", "Elektricist", "Bojaxhi", "Pllakaxhi", "Teknik kondicionerësh"].map(t => ({ label: t, href: `/professionals?profession=${encodeURIComponent(t)}` }))
+            ).map(t => (
+              <button key={t.label} onClick={() => router.push(t.href)} className="nb-tag">{t.label}</button>
             ))}
+            {mode === "pros" && <button onClick={() => router.push("/professionals?request=1")} className="nb-tag nb-tag-strong">🛠 Përshkruaj punën →</button>}
           </div>
         </div>
       </section>
@@ -193,7 +229,7 @@ export default function HomePage() {
       <section className="nb-section nb-section-dark">
         <div className="nb-container">
           <div className="nb-section-header">
-            <h2 className="nb-section-title">Produktet</h2>
+            <h2 className="nb-section-title">Në dyqanet e zonës</h2>
             <Link href="/products" className="nb-see-all">Shiko të gjitha →</Link>
           </div>
           {loadingProd ? (
@@ -201,19 +237,66 @@ export default function HomePage() {
               {[...Array(4)].map((_, i) => <div key={i} className="nb-skeleton" />)}
             </div>
           ) : products.length === 0 ? (
-            <div className="nb-empty-state"><p>📦 Produktet e para do të shfaqen së shpejti!</p></div>
+            <div className="nb-empty-state"><p>📦 Dyqanet po shtojnë produktet e tyre. <Link href="/products">Shfleto katalogun →</Link></p></div>
           ) : (
             <div className="nb-prod-grid">
               {products.map(p => (
                 <Link key={p.id} href={`/products/${p.id}`} className="nb-prod-card">
+                  {p.oldPrice && <span className="nb-prod-offer">OFERTË</span>}
                   <div className="nb-prod-img">
                     {p.images?.[0] ? <img src={p.images[0]} alt={p.name} /> : <span>📦</span>}
                   </div>
                   <div className="nb-prod-info">
                     <p className="nb-prod-name">{p.name}</p>
                     <p className="nb-prod-cat">{p.category}</p>
-                    {p.brand && <p className="nb-prod-brand">{p.brand}</p>}
+                    {p.minPrice !== undefined && (
+                      <p className="nb-prod-price">
+                        {p.oldPrice && <span className="nb-prod-old">{p.oldPrice.toLocaleString()} L</span>}
+                        Nga {p.minPrice.toLocaleString()} L
+                      </p>
+                    )}
+                    <p className="nb-prod-shops">🏪 {p.shopCount} {p.shopCount === 1 ? "dyqan" : "dyqane"}</p>
                   </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Profesionistët */}
+      <section className="nb-section nb-section-dark">
+        <div className="nb-container">
+          <div className="nb-section-header">
+            <h2 className="nb-section-title">Profesionistë të Verifikuar</h2>
+            <Link href="/professionals" className="nb-see-all">Shiko të gjitha →</Link>
+          </div>
+          <Link href="/professionals?request=1" className="nb-job-cta">
+            <div>
+              <p className="nb-job-title">🛠 Ke nevojë për një mjeshtër?</p>
+              <p className="nb-job-sub">Hidraulik, elektricist, bojaxhi... Përshkruaj punën dhe mjeshtrat e zonës tënde të kontaktojnë. Falas.</p>
+            </div>
+            <span className="nb-job-btn">Kërko mjeshtër →</span>
+          </Link>
+          {loadingPro ? (
+            <div className="nb-loading-row">
+              {[...Array(3)].map((_, i) => <div key={i} className="nb-skeleton nb-skeleton-pro" />)}
+            </div>
+          ) : professionals.length === 0 ? (
+            <div className="nb-empty-state"><p>👷 Profesionistët e parë do të shfaqen së shpejti!</p></div>
+          ) : (
+            <div className="nb-pro-grid">
+              {professionals.map(p => (
+                <Link key={p.id} href={PROFESSIONAL_URL(p.id)} className="nb-pro-card">
+                  {p.featured && <div className="nb-featured-badge nb-featured-pro">⭐ Featured</div>}
+                  <div className="nb-pro-photo">{p.photo ? <img src={p.photo} alt={p.name} /> : <span>👤</span>}</div>
+                  <div>
+                    <p className="nb-pro-name">{p.name}</p>
+                    <p className="nb-pro-prof">{p.profession}</p>
+                    <p className="nb-pro-city">📍 {p.city}</p>
+                    {p.pricePerHour && <p className="nb-pro-price">{p.pricePerHour.toLocaleString()} L/orë</p>}
+                  </div>
+                  <div className="nb-pro-footer"><span className="nb-verified nb-verified-pro">✓ Verifikuar</span></div>
                 </Link>
               ))}
             </div>
@@ -274,46 +357,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Profesionistët */}
-      <section className="nb-section nb-section-dark">
-        <div className="nb-container">
-          <div className="nb-section-header">
-            <h2 className="nb-section-title">Profesionistë të Verifikuar</h2>
-            <Link href="/professionals" className="nb-see-all">Shiko të gjitha →</Link>
-          </div>
-          <Link href="/professionals?request=1" className="nb-job-cta">
-            <div>
-              <p className="nb-job-title">🛠 Ke nevojë për një mjeshtër?</p>
-              <p className="nb-job-sub">Hidraulik, elektricist, bojaxhi... Përshkruaj punën dhe mjeshtrat e zonës tënde të kontaktojnë. Falas.</p>
-            </div>
-            <span className="nb-job-btn">Kërko mjeshtër →</span>
-          </Link>
-          {loadingPro ? (
-            <div className="nb-loading-row">
-              {[...Array(3)].map((_, i) => <div key={i} className="nb-skeleton nb-skeleton-pro" />)}
-            </div>
-          ) : professionals.length === 0 ? (
-            <div className="nb-empty-state"><p>👷 Profesionistët e parë do të shfaqen së shpejti!</p></div>
-          ) : (
-            <div className="nb-pro-grid">
-              {professionals.map(p => (
-                <Link key={p.id} href={PROFESSIONAL_URL(p.id)} className="nb-pro-card">
-                  {p.featured && <div className="nb-featured-badge nb-featured-pro">⭐ Featured</div>}
-                  <div className="nb-pro-photo">{p.photo ? <img src={p.photo} alt={p.name} /> : <span>👤</span>}</div>
-                  <div>
-                    <p className="nb-pro-name">{p.name}</p>
-                    <p className="nb-pro-prof">{p.profession}</p>
-                    <p className="nb-pro-city">📍 {p.city}</p>
-                    {p.pricePerHour && <p className="nb-pro-price">{p.pricePerHour.toLocaleString()} L/orë</p>}
-                  </div>
-                  <div className="nb-pro-footer"><span className="nb-verified nb-verified-pro">✓ Verifikuar</span></div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
       {/* CTA */}
       <section className="nb-cta">
         <div className="nb-container">
@@ -322,8 +365,8 @@ export default function HomePage() {
             <h2 className="nb-cta-title">Regjistro biznesin tënd sot</h2>
             <p className="nb-cta-sub">Bëhu pjesë e platformës dhe rrit klientelën tënde</p>
             <div className="nb-cta-btns">
-              <Link href="/auth/register" className="nb-cta-btn-primary">Regjistro biznesin →</Link>
-              <Link href="/auth/register" className="nb-cta-btn-secondary">Regjistrohu si profesionist</Link>
+              <Link href="/auth/register?role=business" className="nb-cta-btn-primary">Regjistro biznesin →</Link>
+              <Link href="/auth/register?role=professional" className="nb-cta-btn-secondary">Regjistrohu si mjeshtër</Link>
             </div>
           </div>
         </div>
@@ -435,12 +478,20 @@ export default function HomePage() {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
         .nb-empty-state{text-align:center;padding:3rem;color:#6b7280;font-size:0.9rem;background:#fff;border:1px dashed #d1d5db;border-radius:14px}
         .nb-prod-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-        .nb-prod-card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;text-decoration:none;transition:border-color .2s,transform .2s;display:block;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+        .nb-mode{display:inline-flex;gap:4px;padding:4px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:12px;margin-bottom:12px}
+        .nb-mode button{padding:0.5rem 1.1rem;border:none;border-radius:9px;background:transparent;color:#52525b;font-weight:700;font-size:0.9rem;cursor:pointer;font-family:inherit}
+        .nb-mode button.on{background:#fff;color:#111;box-shadow:0 1px 4px rgba(0,0,0,0.12)}
+        .nb-tag-strong{background:#7c3aed!important;color:#fff!important;border-color:#7c3aed!important}
+        .nb-prod-card{position:relative;background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;text-decoration:none;transition:border-color .2s,transform .2s;display:block;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
         .nb-prod-card:hover{border-color:#f97316;transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.1)}
         .nb-prod-img{height:140px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:2.5rem;overflow:hidden}
         .nb-prod-img img{width:100%;height:100%;object-fit:cover}
         .nb-prod-info{padding:0.75rem}
         .nb-prod-name{font-size:0.82rem;font-weight:600;color:#111;margin-bottom:2px}
+        .nb-prod-price{font-size:0.88rem;font-weight:800;color:#111;margin-top:4px}
+        .nb-prod-old{font-size:0.75rem;font-weight:500;color:#9ca3af;text-decoration:line-through;margin-right:6px}
+        .nb-prod-shops{font-size:0.72rem;color:#6b7280;margin-top:2px}
+        .nb-prod-offer{position:absolute;top:8px;left:8px;z-index:1;background:#f5c842;color:#111;font-size:0.65rem;font-weight:800;padding:2px 8px;border-radius:6px}
         .nb-prod-cat{font-size:0.72rem;color:#f97316;font-weight:500;margin-bottom:2px}
         .nb-prod-brand{font-size:0.7rem;color:#9ca3af}
         .nb-footer{padding:2rem 0;border-top:1px solid #e5e7eb;background:#fff}

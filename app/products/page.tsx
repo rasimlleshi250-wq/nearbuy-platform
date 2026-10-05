@@ -87,8 +87,10 @@ function ProductsContent() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const [search, setSearch] = useState("");
-  const [searchInput, setSearchInput] = useState("");
+  // Kërkimi nga faqja kryesore vjen si ?search=... (ose ?q=...)
+  const initialSearch = searchParams.get("search") || searchParams.get("q") || "";
+  const [search, setSearch] = useState(initialSearch);
+  const [searchInput, setSearchInput] = useState(initialSearch);
   // Kategoria lexohet nga linku, p.sh. /products?category=Ndërtim
   const [catFilter, setCatFilter] = useState(() => readCategoryParam(searchParams.get("category")));
   const [subcatFilter, setSubcatFilter] = useState("Të gjitha");
@@ -208,6 +210,9 @@ function ProductsContent() {
   // Kur linku ndryshon (p.sh. nga homepage te një kategori tjetër)
   useEffect(() => {
     setCatFilter(readCategoryParam(searchParams.get("category")));
+    const s2 = searchParams.get("search") || searchParams.get("q") || "";
+    setSearch(s2);
+    setSearchInput(s2);
   }, [searchParams]);
 
   // Subcategories
