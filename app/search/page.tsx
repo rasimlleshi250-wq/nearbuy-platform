@@ -4,8 +4,11 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
-import { trackView, trackContact } from "@/lib/firebase/analytics";
+import { collection, query, where, getDocs, limit, getCountFromServer } from "firebase/firestore";
+import { trackContact } from "@/lib/firebase/analytics";
+import { searchWords, pickMainTerm, matchesAllWords } from "@/lib/searchKeywords";
+import { getEffectivePlan } from "@/lib/plans";
+import { openStatus, whatsappLink, DayHours } from "@/lib/businessInfo";
 
 interface BusinessWithProduct extends Business {
   matchedProduct?: {
@@ -28,9 +31,16 @@ interface Business {
   address?: string;
   description?: string;
   subscription: string;
+  categories?: string[];
+  whatsapp?: string;
+  hours?: DayHours[];
+  blocked?: boolean;
+  rank?: number;
+  offers?: boolean;
+  productCount?: number;
 }
 
-const CITIES = ["Të gjitha", "Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Gjirokastër", "Sarandë"];
+const CITIES = ["Të gjitha", "Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
 const CATEGORIES = ["Të gjitha", "Hidraulikë", "Elektrik", "Ndërtim", "Bojëra & Kimikate", "Kopshtari"];
 
 function SearchContent() {
@@ -44,89 +54,71 @@ function SearchContent() {
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
       try {
         const searchTerm = searchParams.get("q") || "";
-        
-        // Ngarko bizneset e verifikuara
-        const bizQ = query(collection(db, "businesses"), where("verified", "==", true));
-        const bizSnap = await getDocs(bizQ);
-        const allBizs = bizSnap.docs.map(d => ({ id: d.id, ...d.data() } as Business));
-        
-        if (searchTerm.trim()) {
-          // Kërko te produktet me filter status
-          const prodQ = query(
-            collection(db, "products"),
-            where("status", "==", "active")
-          );
-          const prodSnap = await getDocs(prodQ);
-          const searchLower = searchTerm.toLowerCase();
-          const matchingProducts = prodSnap.docs
-            .filter(d => {
-              const data = d.data();
-              return data.name?.toLowerCase().includes(searchLower) ||
-                     data.category?.toLowerCase().includes(searchLower) ||
-                     data.subcategory?.toLowerCase().includes(searchLower) ||
-                     data.brand?.toLowerCase().includes(searchLower) ||
-                     data.tags?.some((t: string) => t.toLowerCase().includes(searchLower));
-            })
-            .map(d => ({ id: d.id, ...d.data() }))
-            .slice(0, 100); // Limit 100
 
-          if (matchingProducts.length > 0) {
-            // Gjej bizneset që kanë këto produkte
-            const productIds = matchingProducts.map((p: any) => p.id);
-            const bizProductsSnap = await getDocs(collection(db, "business_products"));
-            const bizProductMatches = bizProductsSnap.docs
-              .filter(d => productIds.includes(d.data().productId))
-              .map(d => d.data());
+        // Bizneset e verifikuara + paketa që vlen sot (Featured, renditja, ofertat)
+        const bizSnap = await getDocs(query(collection(db, "businesses"), where("verified", "==", true)));
+        const allBizs = bizSnap.docs
+          .map(d => {
+            const raw = d.data();
+            const plan = getEffectivePlan(raw);
+            return { id: d.id, ...raw, featured: plan.featured, rank: plan.rank, offers: plan.offers } as Business;
+          })
+          .filter(b => !b.blocked);
 
-            const bizIdsWithProduct = new Set(bizProductMatches.map((bp: any) => bp.businessId));
-            
-            // Bashko me bizneset
-            const bizsWithProducts: BusinessWithProduct[] = [];
-            for (const biz of allBizs) {
-              if (bizIdsWithProduct.has(biz.id)) {
-                const bp = bizProductMatches.find((b: any) => b.businessId === biz.id);
-                const prod = matchingProducts.find((p: any) => p.id === bp?.productId) as any;
-                bizsWithProducts.push({
-                  ...biz,
-                  matchedProduct: prod ? {
-                    name: prod.name,
-                    price: bp?.price || 0,
-                    image: prod.images?.[0],
-                    offerPrice: bp?.offerPrice || undefined,
-                  } : undefined
-                });
-              }
-            }
-            
-            // Shto edhe bizneset që përputhen me emrin/kategorinë
-            const bizByName = allBizs.filter(b =>
-              !bizIdsWithProduct.has(b.id) && (
-                b.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                b.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                b.description?.toLowerCase().includes(searchTerm.toLowerCase())
-              )
-            );
-            
-            const combined = [...bizsWithProducts, ...bizByName];
-            setBusinesses(combined);
-            combined.forEach(b => trackView("businesses", b.id));
-          } else {
-            // Kërkim i thjeshtë te bizneset
-            const filtered = allBizs.filter(b =>
-              b.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              b.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              b.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              b.description?.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-            setBusinesses(filtered);
-            filtered.forEach(b => trackView("businesses", b.id));
-          }
-        } else {
-          setBusinesses(allBizs);
-          allBizs.forEach(b => trackView("businesses", b.id));
+        // Numri i produkteve për çdo biznes — me numërim, pa i lexuar
+        await Promise.all(allBizs.map(async b => {
+          try {
+            b.productCount = (await getCountFromServer(query(collection(db, "business_products"), where("businessId", "==", b.id)))).data().count;
+          } catch { b.productCount = 0; }
+        }));
+
+        const words = searchWords(searchTerm);
+        const main = pickMainTerm(words);
+        if (!main) { setBusinesses(allBizs); return; }
+
+        // Produktet që përputhen — me fjalët kyçe (max 100 lexime), jo gjithë katalogu
+        const prodSnap = await getDocs(query(collection(db, "products"), where("searchKeywords", "array-contains", main), limit(100)));
+        const matchingProducts = prodSnap.docs
+          .map(d => ({ id: d.id, ...d.data() } as { id: string; name: string; images?: string[]; status?: string; brand?: string }))
+          .filter(p => (p.status || "active") === "active" && matchesAllWords(`${p.name} ${p.brand || ""}`, words));
+
+        // Çmimet e bizneseve vetëm për këto produkte (në grupe nga 30)
+        const ids = matchingProducts.map(p => p.id);
+        const bizProductMatches: { businessId: string; productId: string; price: number; offerPrice?: number; inStock?: boolean }[] = [];
+        for (let i = 0; i < ids.length; i += 30) {
+          const snap = await getDocs(query(collection(db, "business_products"), where("productId", "in", ids.slice(i, i + 30))));
+          snap.docs.forEach(d => bizProductMatches.push(d.data() as typeof bizProductMatches[number]));
         }
+
+        const byBiz = new Map<string, typeof bizProductMatches>();
+        bizProductMatches.filter(bp => bp.inStock !== false).forEach(bp => byBiz.set(bp.businessId, [...(byBiz.get(bp.businessId) || []), bp]));
+
+        const withProduct: BusinessWithProduct[] = [];
+        for (const biz of allBizs) {
+          const list = byBiz.get(biz.id);
+          if (!list) continue;
+          // Produkti më i lirë që përputhet
+          const effective = (bp: typeof list[number]) => (biz.offers && bp.offerPrice && bp.offerPrice < bp.price ? bp.offerPrice : bp.price);
+          const bp = [...list].sort((a, b) => effective(a) - effective(b))[0];
+          const prod = matchingProducts.find(p => p.id === bp.productId);
+          withProduct.push({
+            ...biz,
+            matchedProduct: prod ? {
+              name: prod.name, price: bp.price || 0, image: prod.images?.[0],
+              offerPrice: biz.offers && bp.offerPrice && bp.offerPrice < bp.price ? bp.offerPrice : undefined,
+            } : undefined,
+          });
+        }
+
+        const q = searchTerm.toLowerCase();
+        const byName = allBizs.filter(b => !byBiz.has(b.id) && (
+          b.name?.toLowerCase().includes(q) || b.description?.toLowerCase().includes(q) ||
+          (b.categories || [b.category]).some(c => c?.toLowerCase().includes(q))
+        ));
+        setBusinesses([...withProduct, ...byName]);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
@@ -135,7 +127,7 @@ function SearchContent() {
 
   const filtered = businesses.filter(b => {
     const matchCity = cityFilter === "Të gjitha" || b.city === cityFilter;
-    const matchCat = catFilter === "Të gjitha" || b.category?.toLowerCase().includes(catFilter.toLowerCase());
+    const matchCat = catFilter === "Të gjitha" || (b.categories && b.categories.length ? b.categories : [b.category]).includes(catFilter);
     return matchCity && matchCat;
   });
 
@@ -203,7 +195,16 @@ function SearchContent() {
           </div>
         ) : (
           <div className="sr-grid">
-            {filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0)).map(b => (
+            {/* Premium të parët, pastaj Plus; brenda paketës, ata me produkt më të lirë / më shumë produkte */}
+            {[...filtered].sort((a, b) => (b.rank || 0) - (a.rank || 0)
+              || ((a as BusinessWithProduct).matchedProduct && (b as BusinessWithProduct).matchedProduct
+                ? ((a as BusinessWithProduct).matchedProduct!.offerPrice || (a as BusinessWithProduct).matchedProduct!.price) - ((b as BusinessWithProduct).matchedProduct!.offerPrice || (b as BusinessWithProduct).matchedProduct!.price)
+                : (b.productCount || 0) - (a.productCount || 0))).map(b => {
+              const status = openStatus(b.hours);
+              const wa = whatsappLink(b.whatsapp || b.phone, (b as BusinessWithProduct).matchedProduct
+                ? `Përshëndetje, e keni "${(b as BusinessWithProduct).matchedProduct!.name}"? E pashë në NearBuy.al.`
+                : `Përshëndetje ${b.name}, ju gjeta në NearBuy.al dhe kam një pyetje.`);
+              return (
               <div key={b.id} className={`sr-card ${b.featured ? "sr-card-featured" : ""}`}>
                 {b.featured && <div className="sr-feat">⭐ Featured</div>}
                 <Link href={`/business/${b.id}`} className="sr-card-link">
@@ -235,21 +236,24 @@ function SearchContent() {
                     </div>
                     <div className="sr-card-info">
                       <p className="sr-name">{b.name}</p>
-                      <p className="sr-cat">{b.category}</p>
-                      <p className="sr-city">📍 {b.city}</p>
+                      <p className="sr-cat">{(b.categories && b.categories.length ? b.categories : [b.category]).join(" · ")}</p>
+                      <p className="sr-city">📍 {b.city}{b.productCount ? ` · ${b.productCount} produkte` : ""}</p>
+                      {status && <p className={`sr-open ${status.open ? "on" : ""}`}>● {status.label}</p>}
                     </div>
                   </div>
                   {b.description && <p className="sr-desc">{b.description.slice(0, 90)}{b.description.length > 90 ? "..." : ""}</p>}
                   {b.address && <p className="sr-addr">🗺 {b.address}</p>}
                 </Link>
                 <div className="sr-card-footer">
+                  {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className="sr-wa" onClick={() => trackContact("businesses", b.id)}>💬 WhatsApp</a>}
                   {b.phone && (
-                    <a href={`tel:${b.phone}`} className="sr-call" onClick={() => trackContact("businesses", b.id)}>📞 {b.phone}</a>
+                    <a href={`tel:${b.phone}`} className="sr-call" onClick={() => trackContact("businesses", b.id)}>📞 Telefono</a>
                   )}
-                  <Link href={`/business/${b.id}`} className="sr-view-btn">Shiko dyqanin →</Link>
+                  <Link href={`/business/${b.id}`} className="sr-view-btn">Dyqani →</Link>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -300,7 +304,10 @@ function SearchContent() {
         .sr-desc{font-size:0.78rem;color:#71717a;line-height:1.5}
         .sr-addr{font-size:0.75rem;color:#52525b}
         .sr-card-link{display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit}
-        .sr-card-footer{display:flex;gap:8px;margin-top:auto}
+        .sr-card-footer{display:flex;gap:8px;margin-top:auto;flex-wrap:wrap}
+        .sr-wa{display:inline-flex;align-items:center;gap:4px;padding:0.5rem 0.9rem;background:#16a34a;color:#fff;border-radius:8px;font-size:0.8rem;font-weight:700;text-decoration:none;white-space:nowrap}
+        .sr-open{font-size:0.72rem;font-weight:600;color:#f87171;margin-top:2px}
+        .sr-open.on{color:#22c55e}
         .sr-call{flex:1;text-align:center;padding:0.6rem;background:rgba(245,200,66,0.08);border:1px solid rgba(245,200,66,0.2);border-radius:10px;color:#f5c842;font-size:0.82rem;font-weight:600;text-decoration:none;transition:background .2s}
         .sr-call:hover{background:rgba(245,200,66,0.15)}
         .sr-view-btn{flex:1;text-align:center;padding:0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#a1a1aa;font-size:0.82rem;font-weight:500;text-decoration:none;transition:all .2s}
