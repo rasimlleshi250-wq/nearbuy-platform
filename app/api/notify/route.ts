@@ -7,6 +7,9 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/server/firebaseAdmin";
 import { sendTelegram, esc } from "@/lib/server/telegram";
 import { FieldValue } from "firebase-admin/firestore";
+import { sendEmail, emailLayout, ownerEmail } from "@/lib/server/email";
+import { getEffectivePlan } from "@/lib/plans";
+import { getEffectiveProPlan } from "@/lib/proPlans";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +18,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://nearbuy.al";
 const FRESH_MS = 15 * 60 * 1000; // pranohen vetëm dokumente të 15 minutave të fundit
 
 const PLAN_NAMES: Record<string, string> = {
-  baze: "Bazë (€10)", plus: "Plus (€15)", premium: "Premium", standard: "Pro (€10)",
+  baze: "Bazë (€10)", plus: "Plus (€15)", premium: "Premium", standard: "Pro (€10)", free: "Falas",
   basic: "Bazë (€10)", advanced: "Plus (€15)", pro: "Premium (€20)",
 };
 
@@ -48,6 +51,22 @@ export async function POST(req: Request) {
         `\n${unserved ? "⚠️ Asnjë dyqan me paketë s'e mori — kontakto klientin ose gjej partner." : `→ u dërgua te ${d.sentTo} dyqane`}` +
         `\n<a href="${SITE}/admin/customer-requests">Hape në panel</a>`);
       await ref.update({ adminNotified: true });
+
+      // Email bizneseve që e morën kërkesën
+      const ids: string[] = Array.isArray(d.sentToIds) ? d.sentToIds.slice(0, 40) : [];
+      await Promise.all(ids.map(async bizId => {
+        const biz = (await db.collection("businesses").doc(bizId).get()).data();
+        if (!biz) return;
+        const to = await ownerEmail("business", bizId, biz);
+        const visible = getEffectivePlan(biz).id === "premium"; // Plus e sheh pas 2 orësh
+        await sendEmail(to, `📨 Klient i ri kërkon: ${d.productName}`, emailLayout(
+          "Një klient po kërkon një produkt në zonën tënde",
+          `<p><b>${esc(d.productName)}</b><br>📍 ${esc(d.city)}${d.note ? `<br>📝 "${esc(d.note)}"` : ""}</p>` +
+          (visible
+            ? `<p>👤 <b>${esc(d.name)}</b> · ${esc(d.phone)}</p><p>Kontaktoje sa më shpejt, sepse kërkesa u shkon disa dyqaneve.</p>`
+            : `<p>Kontakti i klientit shfaqet në panelin tënd pas 2 orësh. Me paketën <b>Premium</b> e merr menjëherë, para të tjerëve.</p>`),
+          { label: "Hap kërkesën", href: `${SITE}/dashboard/business/leads` }));
+      }));
     }
 
     // ── Kërkesë për punë (mjeshtër) ─────────────────────────────
@@ -62,6 +81,22 @@ export async function POST(req: Request) {
         `\n${unserved ? "⚠️ Asnjë mjeshtër me paketë s'e mori — kontakto klientin ose gjej mjeshtër." : `→ u dërgua te ${d.sentTo} mjeshtër`}` +
         `\n<a href="${SITE}/admin/customer-requests">Hape në panel</a>`);
       await ref.update({ adminNotified: true });
+
+      // Email mjeshtrave që e morën kërkesën
+      const ids: string[] = Array.isArray(d.sentToIds) ? d.sentToIds.slice(0, 40) : [];
+      await Promise.all(ids.map(async proId => {
+        const pro = (await db.collection("professionals").doc(proId).get()).data();
+        if (!pro) return;
+        const to = await ownerEmail("professional", proId, pro);
+        const visible = getEffectiveProPlan(pro).id === "premium"; // Pro e sheh pas 2 orësh
+        await sendEmail(to, `🛠 Punë e re: ${d.profession} në ${d.city}`, emailLayout(
+          `Një klient kërkon ${String(d.profession).toLowerCase()} në ${esc(d.city)}`,
+          `<p><b>${esc(d.urgency)}</b><br>"${esc(d.description)}"</p>` +
+          (visible
+            ? `<p>👤 <b>${esc(d.name)}</b> · ${esc(d.phone)}</p><p>Shkruaji sa më shpejt — klienti zakonisht zgjedh të parin që i përgjigjet.</p>`
+            : `<p>Kontakti i klientit shfaqet në panelin tënd pas 2 orësh. Me paketën <b>Premium</b> e merr menjëherë.</p>`),
+          { label: "Hap kërkesën", href: `${SITE}/dashboard/professional/jobs` }));
+      }));
     }
 
     // ── Biznesi kërkoi produkte të reja në katalog ──────────────
@@ -108,6 +143,38 @@ export async function POST(req: Request) {
         `${esc(d.name)} · ${esc(d.profession || d.category || "")} · 📍 ${esc(d.city)}\n📞 ${esc(d.phone)}` +
         `\n<a href="${SITE}/admin/${col}">Aprovoje</a>`);
       await ref.update({ signupNotified: FieldValue.serverTimestamp() });
+    }
+
+    // ── Kërkesa për produkt u shqyrtua (nga admini) ────────────
+    else if (event === "product_request_done") {
+      const ref = db.collection("product_requests").doc(id);
+      const d = (await ref.get()).data();
+      if (!d || d.status === "pending" || d.businessEmailed) return NextResponse.json({ ok: true, skipped: true });
+      const ok = d.status === "approved" || d.status === "merged";
+      const to = await ownerEmail("business", d.businessId);
+      await sendEmail(to, ok ? `✅ "${d.name}" u shtua në profilin tënd` : `Kërkesa për "${d.name}"`, emailLayout(
+        ok ? "Produkti u shtua" : "Kërkesa nuk u pranua",
+        ok ? `<p><b>${esc(d.name)}</b> është tani në katalog dhe në profilin tënd me çmimin ${esc(d.price)} L. Klientët mund ta gjejnë që sot.</p>`
+           : `<p>Produkti <b>${esc(d.name)}</b> nuk u shtua në katalog. Nëse mendon se është gabim, na shkruaj.</p>`,
+        { label: "Shiko produktet e mia", href: `${SITE}/dashboard/business/products` }));
+      await ref.update({ businessEmailed: true });
+    }
+
+    // ── Paketa u aktivizua (nga admini) ─────────────────────────
+    else if (event === "plan_activated") {
+      const col = kind === "professional" ? "professionals" : "businesses";
+      const ref = db.collection(col).doc(id);
+      const d = (await ref.get()).data();
+      const key = `${d?.subscription}-${d?.subscriptionEnd}`;
+      if (!d || d.planStatus !== "active" || d.activationEmailed === key) return NextResponse.json({ ok: true, skipped: true });
+      const to = await ownerEmail(kind === "professional" ? "professional" : "business", id, d);
+      const name = PLAN_NAMES[String(d.subscription)] || String(d.subscription);
+      await sendEmail(to, `🎉 Paketa ${name.split(" (")[0]} është aktive`, emailLayout(
+        "Faleminderit! Paketa jote është aktive",
+        `<p>Paketa <b>${esc(name.split(" (")[0])}</b> për <b>${esc(d.name)}</b> është aktive deri më <b>${esc(d.subscriptionEnd)}</b>.</p>` +
+        `<p>Do të të njoftojmë 7 ditë para se të skadojë.</p>`,
+        { label: "Hap panelin", href: `${SITE}/dashboard/${kind === "professional" ? "professional" : "business"}` }));
+      await ref.update({ activationEmailed: key });
     }
 
     else return NextResponse.json({ ok: false }, { status: 400 });

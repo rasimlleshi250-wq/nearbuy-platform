@@ -15,6 +15,7 @@ import { getCategories, getSubcategories } from "@/lib/firebase/firestore";
 import { buildSearchKeywords, searchWords, pickMainTerm, matchesAllWords } from "@/lib/searchKeywords";
 import { extractWords } from "@/lib/productMatcher";
 import Link from "next/link";
+import { notify } from "@/lib/notify";
 
 interface Req {
   id: string;
@@ -79,6 +80,7 @@ export default function ProductRequestsPage() {
         createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
       }, { merge: true });
       await updateDoc(doc(db, "product_requests", r.id), { status, productId, processedAt: serverTimestamp() });
+      notify("product_request_done", r.id);
     }
     setRequests(prev => prev.filter(r => !g.requests.some(x => x.id === r.id)));
   };
@@ -107,6 +109,7 @@ export default function ProductRequestsPage() {
     if (!confirm(`Refuzo "${g.requests[0].name}"?`)) return;
     for (const r of g.requests) {
       await updateDoc(doc(db, "product_requests", r.id), { status: "rejected", processedAt: serverTimestamp() });
+      notify("product_request_done", r.id);
     }
     setRequests(prev => prev.filter(r => !g.requests.some(x => x.id === r.id)));
     flash("Kërkesa u refuzua.");

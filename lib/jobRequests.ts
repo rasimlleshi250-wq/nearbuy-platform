@@ -50,7 +50,8 @@ export async function submitJobRequest(input: JobInput): Promise<number> {
   const now = Date.now();
   const batch = writeBatch(db);
   const reqRef = doc(collection(db, "job_requests"));
-  batch.set(reqRef, { ...clean, status: "open", sentTo: targets.length, createdAt: serverTimestamp() });
+  batch.set(reqRef, { ...clean, status: "open", sentTo: Math.min(targets.length, 40),
+    sentToIds: targets.slice(0, 40).map(d => d.id), createdAt: serverTimestamp() });
   targets.slice(0, 40).forEach(d => {
     const premium = getEffectiveProPlan(d.data()).id === "premium";
     batch.set(doc(collection(db, "professionals", d.id, "jobs")), {

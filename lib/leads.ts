@@ -51,7 +51,8 @@ export async function submitCustomerRequest(input: LeadInput): Promise<number> {
   const now = Date.now();
   const batch = writeBatch(db);
   const reqRef = doc(collection(db, "customer_requests"));
-  batch.set(reqRef, { ...clean, status: "open", sentTo: targets.length, createdAt: serverTimestamp() });
+  batch.set(reqRef, { ...clean, status: "open", sentTo: Math.min(targets.length, 40),
+    sentToIds: targets.slice(0, 40).map(d => d.id), createdAt: serverTimestamp() });
   targets.slice(0, 40).forEach(d => {
     const isPremium = getEffectivePlan(d.data()).id === "premium";
     batch.set(doc(collection(db, "businesses", d.id, "leads")), {
