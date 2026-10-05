@@ -8,6 +8,7 @@ import { doc, getDoc, collection, query, where, getDocs } from "firebase/firesto
 import { trackProductClick } from "@/lib/firebase/analytics";
 import { whatsappLink } from "@/lib/businessInfo";
 import { getEffectivePlan } from "@/lib/plans";
+import CustomerRequestForm from "./CustomerRequestForm";
 
 interface Product {
   id: string;
@@ -219,9 +220,11 @@ export default function ProductDetailPage() {
           </h2>
 
           {bizProducts.length === 0 ? (
-            <div className="det-no-biz">
-              <p>😕 Asnjë dyqan nuk e shet ende këtë produkt.</p>
-              <Link href="/search" className="det-search-link">Kërko dyqane →</Link>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div className="det-no-biz">
+                <p>Asnjë dyqan nuk e ka listuar ende këtë produkt në NearBuy.</p>
+              </div>
+              <CustomerRequestForm productId={product.id} productName={product.name} category={product.category} />
             </div>
           ) : (
             <div className="det-biz-grid">

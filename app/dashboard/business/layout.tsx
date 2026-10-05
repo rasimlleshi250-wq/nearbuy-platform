@@ -8,13 +8,15 @@ import Link from "next/link";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { db } from "@/lib/firebase/config";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, getCountFromServer } from "firebase/firestore";
+import { getEffectivePlan } from "@/lib/plans";
 import { Business } from "@/types";
 import { getSubscriptionState, formatDate } from "@/lib/subscription";
 
 const NAV = [
   { href: "/dashboard/business", label: "Overview", icon: "⊞", exact: true },
   { href: "/dashboard/business/products", label: "Produktet", icon: "🛍" },
+  { href: "/dashboard/business/leads", label: "Kërkesat e klientëve", icon: "📨" },
   { href: "/dashboard/business/profile", label: "Profili", icon: "🏪" },
 ];
 
@@ -25,6 +27,14 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
   const [business, setBusiness] = useState<Business | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [newLeads, setNewLeads] = useState(0);
+
+  // Numri i kërkesave të reja të klientëve (vetëm Plus/Premium)
+  useEffect(() => {
+    if (!business || !getEffectivePlan(business as unknown as Record<string, unknown>).leads) return;
+    getCountFromServer(query(collection(db, "businesses", business.id, "leads"), where("status", "==", "new")))
+      .then(s => setNewLeads(s.data().count)).catch(() => {});
+  }, [business, pathname]);
 
   useEffect(() => {
     if (!authLoading && !profileLoading) {
@@ -120,6 +130,7 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
                 onClick={() => setSidebarOpen(false)}>
                 <span className="biz-nav-icon">{item.icon}</span>
                 <span>{item.label}</span>
+                {item.href.endsWith("/leads") && newLeads > 0 && <span className="biz-nav-count">{newLeads}</span>}
               </Link>
             ))}
           </nav>
@@ -181,6 +192,7 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
         .biz-nav-item:hover{background:rgba(255,255,255,0.05);color:#e4e4e7}
         .biz-nav-item.active{background:rgba(249,115,22,0.12);color:#f97316}
         .biz-nav-icon{font-size:1rem;width:18px;text-align:center}
+        .biz-nav-count{margin-left:auto;background:#f5c842;color:#111;font-size:0.68rem;font-weight:700;border-radius:999px;padding:1px 7px}
         .biz-sidebar-bottom{padding:1rem;border-top:1px solid rgba(255,255,255,0.07)}
         .biz-pending{font-size:0.75rem;color:#fbbf24;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:0.5rem 0.75rem;margin-bottom:10px;text-align:center}
         .biz-user{display:flex;align-items:center;gap:8px;padding:0.5rem;margin-bottom:8px}
