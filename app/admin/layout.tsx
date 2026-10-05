@@ -6,11 +6,13 @@ import { useUserProfile } from "@/lib/hooks/useUserProfile";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
+import { auth, db } from "@/lib/firebase/config";
+import { collection, query, where, getCountFromServer } from "firebase/firestore";
 
 const NAV = [
   { href: "/admin", label: "Overview", icon: "⊞", exact: true },
   { href: "/admin/products", label: "Produktet", icon: "🛍" },
+  { href: "/admin/product-requests", label: "Kërkesat", icon: "📥" },
   { href: "/admin/categories", label: "Kategorinë", icon: "📁" },
   { href: "/admin/subcategories", label: "Nënkategoritë", icon: "📂" },
   { href: "/admin/businesses", label: "Bizneset", icon: "🏪" },
@@ -23,6 +25,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState(0);
+
+  // Numri i kërkesave në pritje — rifreskohet kur ndryshon faqja
+  useEffect(() => {
+    if (!user || profile?.role !== "admin") return;
+    getCountFromServer(query(collection(db, "product_requests"), where("status", "==", "pending")))
+      .then(s => setPendingRequests(s.data().count))
+      .catch(() => {});
+  }, [user, profile, pathname]);
 
   useEffect(() => {
     if (!authLoading && !profileLoading) {
@@ -73,6 +84,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 onClick={() => setSidebarOpen(false)}>
                 <span className="adm-nav-icon">{item.icon}</span>
                 <span>{item.label}</span>
+                {item.href === "/admin/product-requests" && pendingRequests > 0 && (
+                  <span className="adm-nav-count">{pendingRequests}</span>
+                )}
               </Link>
             ))}
           </nav>
@@ -125,6 +139,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         .adm-nav-item:hover{background:rgba(255,255,255,0.05);color:#e4e4e7}
         .adm-nav-item.active{background:rgba(249,115,22,0.12);color:#f97316}
         .adm-nav-icon{font-size:1rem;width:18px;text-align:center}
+        .adm-nav-count{margin-left:auto;background:#f97316;color:#fff;font-size:0.68rem;font-weight:700;border-radius:999px;padding:1px 7px;min-width:20px;text-align:center}
         .adm-sidebar-bottom{padding:1rem;border-top:1px solid rgba(255,255,255,0.07)}
         .adm-user{display:flex;align-items:center;gap:8px;padding:0.5rem;margin-bottom:8px}
         .adm-avatar{width:30px;height:30px;border-radius:50%;background:rgba(249,115,22,0.2);border:1.5px solid rgba(249,115,22,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0}
