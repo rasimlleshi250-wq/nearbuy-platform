@@ -7,13 +7,14 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase/config";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getCountFromServer } from "firebase/firestore";
 import { Professional } from "@/types";
 import { getEffectiveProPlan, normalizeProPlanId, normalizeProfession, PRO_PLANS } from "@/lib/proPlans";
 import { getSubscriptionState } from "@/lib/subscription";
 
 const NAV = [
   { href: "/dashboard/professional", label: "Overview", icon: "⊞", exact: true },
+  { href: "/dashboard/professional/jobs", label: "Kërkesat për punë", icon: "🛠" },
   { href: "/dashboard/professional/profile", label: "Profili im", icon: "👤" },
 ];
 
@@ -24,6 +25,14 @@ export default function ProfessionalLayout({ children }: { children: React.React
   const pathname = usePathname();
   const [professional, setProfessional] = useState<Professional | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [newJobs, setNewJobs] = useState(0);
+
+  // Numri i kërkesave të reja për punë (vetëm Pro/Premium)
+  useEffect(() => {
+    if (!user || !professional || !getEffectiveProPlan(professional as unknown as Record<string, unknown>).jobRequests) return;
+    getCountFromServer(query(collection(db, "professionals", user.uid, "jobs"), where("status", "==", "new")))
+      .then(s => setNewJobs(s.data().count)).catch(() => {});
+  }, [user, professional, pathname]);
 
   useEffect(() => {
     if (!authLoading && !profileLoading) {
@@ -106,6 +115,7 @@ export default function ProfessionalLayout({ children }: { children: React.React
                 onClick={() => setSidebarOpen(false)}>
                 <span>{item.icon}</span>
                 <span>{item.label}</span>
+                {item.href.endsWith("/jobs") && newJobs > 0 && <span className="pro-nav-count">{newJobs}</span>}
               </Link>
             ))}
           </nav>
@@ -151,6 +161,7 @@ export default function ProfessionalLayout({ children }: { children: React.React
         .pro-brand-name{font-size:1rem;font-weight:700;color:#fff;letter-spacing:-0.02em;display:block;line-height:1.2}
         .pro-brand-name em{color:#f97316;font-style:normal}
         .pro-role-badge{font-size:0.65rem;background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.25);border-radius:4px;padding:1px 6px;font-weight:600;display:inline-block;margin-top:2px}
+        .pro-nav-count{margin-left:auto;background:#c084fc;color:#111;font-size:0.68rem;font-weight:700;border-radius:999px;padding:1px 7px}
         .pro-plan-badge{font-size:0.62rem;padding:1px 7px;border-radius:4px;font-weight:600;border:1px solid;display:inline-block;margin-top:3px;margin-left:3px}
         .pro-profile-info{display:flex;align-items:center;gap:10px;padding:0.75rem;background:rgba(255,255,255,0.04);border-radius:10px;margin-bottom:1.25rem;border:1px solid rgba(255,255,255,0.07)}
         .pro-avatar-lg{width:42px;height:42px;border-radius:50%;background:rgba(168,85,247,0.2);border:2px solid rgba(168,85,247,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}

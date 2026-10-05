@@ -5,14 +5,16 @@ import { collection, getDocs, query, orderBy, doc, updateDoc } from "firebase/fi
 import { db } from "@/lib/firebase/config";
 import { Professional } from "@/types";
 import { PRO_PLANS, PRO_PLAN_ORDER, normalizeProPlanId, getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
-import { getSubscriptionState } from "@/lib/subscription";
+import { getSubscriptionState, toDate, formatDate } from "@/lib/subscription";
 
 type Pro = Professional & Record<string, any>;
 const DURATIONS = [1, 3, 6, 12];
 const PAYMENT_METHODS = ["Cash", "Transfertë", "Kartë"];
 
-function addMonths(fromIso: string | undefined, months: number): string {
-  const base = fromIso && new Date(fromIso) > new Date() ? new Date(fromIso) : new Date();
+// Pranon datën në çdo formë (tekst ose Timestamp i Firebase)
+function addMonths(from: unknown, months: number): string {
+  const fromDate = toDate(from);
+  const base = fromDate && fromDate > new Date() ? fromDate : new Date();
   const d = new Date(base);
   d.setMonth(d.getMonth() + months);
   return d.toISOString().split("T")[0];
@@ -68,14 +70,14 @@ export default function AdminProfessionalsPage() {
         lastPayment: { plan, months: m, amountEur: PRO_PLANS[plan].priceEur * m, method, date: today },
       };
       await updateDoc(doc(db, "professionals", p.id), update);
-      setProfessionals(prev => prev.map(x => x.id === p.id ? { ...x, ...update, requestedPlan: undefined } : x));
+      setProfessionals(prev => prev.map(x => x.id === p.id ? ({ ...x, ...update, requestedPlan: undefined } as unknown as Pro) : x));
     } catch (e) { console.error(e); alert("Gabim gjatë aktivizimit."); }
     finally { setBusy(null); }
   };
 
   const rejectPlan = async (p: Pro) => {
     await updateDoc(doc(db, "professionals", p.id), { requestedPlan: null, planStatus: getSubscriptionState({ ...raw(p), subscription: normalizeProPlanId(p.subscription) }).active ? "active" : "rejected" });
-    setProfessionals(prev => prev.map(x => x.id === p.id ? { ...x, requestedPlan: undefined, planStatus: "rejected" } : x));
+    setProfessionals(prev => prev.map(x => x.id === p.id ? ({ ...x, requestedPlan: undefined, planStatus: "rejected" } as unknown as Pro) : x));
   };
 
   const filtered = professionals.filter(p => {
@@ -174,7 +176,7 @@ export default function AdminProfessionalsPage() {
                         <span className="adm-plan-badge" style={{ color, borderColor: `${color}55`, background: `${color}15` }}>
                           {def.name}{st.expired ? " · skaduar" : ""}
                         </span>
-                        {st.endDate && def.id !== "free" && <span className="adm-text-muted" style={{ fontSize: "0.7rem" }}>deri {p.subscriptionEnd}</span>}
+                        {st.endDate && def.id !== "free" && <span className="adm-text-muted" style={{ fontSize: "0.7rem" }}>deri {formatDate(st.endDate)}</span>}
                         {p.planStatus === "pending" && p.requestedPlan ? (
                           <>
                             <span className="adm-req">Kërkon: {PRO_PLANS[normalizeProPlanId(p.requestedPlan)].name} · €{PRO_PLANS[normalizeProPlanId(p.requestedPlan)].priceEur * (months[p.id] || 1)}</span>
