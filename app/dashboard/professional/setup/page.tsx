@@ -1,213 +1,475 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase/config";
+import { doc, setDoc, getDoc, serverTimestamp, GeoPoint } from "firebase/firestore";
 import Link from "next/link";
-import { Professional } from "@/types";
 
-const CITIES = ["Të gjitha", "Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat"];
-const PROFESSIONS = ["Të gjitha", "Elektriçist", "Hidraulik", "Murator", "Bojaxhi", "Karpentier", "Instalues kondicionerësh", "Teknik elektronike", "Gipsar", "Fasadist", "Pastruese", "Fotograf"];
+const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
 
-function ProfessionalsContent() {
-  const searchParams = useSearchParams();
+const CATEGORIES = ["Hidraulikë", "Elektrik", "Ndërtim", "Bojëra"];
+
+const SCHEDULE_DAYS = ["E Hënë", "E Martë", "E Mërkurë", "E Enjte", "E Premte", "E Shtunë", "E Diel"];
+
+const HOURS = Array.from({ length: 24 }, (_, i) => {
+  const h = i.toString().padStart(2, "0");
+  return `${h}:00`;
+});
+
+interface DaySchedule {
+  open: boolean;
+  from: string;
+  to: string;
+}
+
+export default function BusinessSetupPage() {
+  const { user } = useAuth();
   const router = useRouter();
-  const [professionals, setProfessionals] = useState<Professional[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [city, setCity] = useState(searchParams.get("city") || "Të gjitha");
-  const [profession, setProfession] = useState(searchParams.get("prof") || "Të gjitha");
-  const [search, setSearch] = useState(searchParams.get("q") || "");
+  const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [docExists, setDocExists] = useState(false);
+  const [error, setError] = useState("");
+  const [locating, setLocating] = useState(false);
+  const [locTab, setLocTab] = useState<"gps" | "maps">("gps");
 
+  const [form, setForm] = useState({
+    name: "",
+    category: "",
+    city: "",
+    address: "",
+    phone: "",
+    description: "",
+    lat: 0,
+    lng: 0,
+    mapsLink: "",
+  });
+
+  const [schedule, setSchedule] = useState<Record<string, DaySchedule>>(
+    Object.fromEntries(SCHEDULE_DAYS.map(d => [d, { open: d !== "E Diel", from: "08:00", to: "18:00" }]))
+  );
+
+  // Nëse profili i biznesit është i plotë, ridrejto te paneli.
+  // Nëse ekziston por i mungojnë të dhënat (p.sh. regjistrim me Google), plotësoje këtu.
   useEffect(() => {
-    const fetch = async () => {
-      setLoading(true);
-      try {
-        const constraints = [where("verified", "==", true)];
-        const snap = await getDocs(query(collection(db, "professionals"), ...constraints));
-        setProfessionals(snap.docs.map(d => ({ id: d.id, ...d.data() } as Professional)));
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
+    if (!user) return;
+    const check = async () => {
+      const snap = await getDoc(doc(db, "businesses", user.uid));
+      const d = snap.exists() ? snap.data() : null;
+      if (d && d.phone && d.city && d.address) {
+        router.replace("/dashboard/business");
+        return;
+      }
+      if (d) {
+        setDocExists(true);
+        setForm(p => ({
+          ...p,
+          name: d.name || d.displayName || "",
+          category: d.category || "",
+          city: d.city || "",
+          address: d.address || "",
+          phone: d.phone || "",
+          description: d.description || "",
+        }));
+      }
+      setChecking(false);
     };
-    fetch();
-  }, []);
+    check();
+  }, [user, router]);
 
-  const filtered = professionals
-    .filter(p => city === "Të gjitha" || p.city === city)
-    .filter(p => profession === "Të gjitha" || p.profession === profession)
-    .filter(p => !search || p.name?.toLowerCase().includes(search.toLowerCase()) ||
-      p.profession?.toLowerCase().includes(search.toLowerCase()) ||
-      p.services?.some(s => s.toLowerCase().includes(search.toLowerCase()))
-    )
-    .sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+  const getLocation = () => {
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setForm(p => ({ ...p, lat: pos.coords.latitude, lng: pos.coords.longitude }));
+        setLocating(false);
+      },
+      () => {
+        setError("Nuk mund të merret lokacioni. Provo manualisht.");
+        setLocating(false);
+      }
+    );
+  };
+
+  const parseMapsLink = (link: string) => {
+    try {
+      // Format 1: https://maps.google.com/maps?q=41.3275,19.8187
+      // Format 2: https://www.google.com/maps/place/.../@41.3275,19.8187,17z
+      // Format 3: https://maps.app.goo.gl/... (short link - cannot parse directly)
+      // Format 4: https://www.google.com/maps?q=41.3275,19.8187
+      // Format 5: geo:41.3275,19.8187
+
+      // Try @lat,lng format (most common from share button)
+      const atMatch = link.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (atMatch) {
+        return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+      }
+
+      // Try ?q=lat,lng format
+      const qMatch = link.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (qMatch) {
+        return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
+      }
+
+      // Try ll=lat,lng format
+      const llMatch = link.match(/ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (llMatch) {
+        return { lat: parseFloat(llMatch[1]), lng: parseFloat(llMatch[2]) };
+      }
+
+      // Try plain coordinates pasted directly (41.3275, 19.8187)
+      const coordMatch = link.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
+      if (coordMatch) {
+        return { lat: parseFloat(coordMatch[1]), lng: parseFloat(coordMatch[2]) };
+      }
+
+      return null;
+    } catch { return null; }
+  };
+
+  const handleMapsLink = (link: string) => {
+    setForm(p => ({ ...p, mapsLink: link }));
+    if (!link.trim()) return;
+    const coords = parseMapsLink(link.trim());
+    if (coords) {
+      setForm(p => ({ ...p, mapsLink: link, lat: coords.lat, lng: coords.lng }));
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!user) return;
+    if (!form.name || !form.category || !form.city || !form.address || !form.phone) {
+      setError("Plotëso të gjitha fushat e detyrueshme.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+
+      const scheduleStr = Object.entries(schedule)
+        .filter(([, v]) => v.open)
+        .map(([day, v]) => `${day}: ${v.from}–${v.to}`)
+        .join(", ");
+
+      // Përdor setDoc me user.uid si ID (njësoj si professionals).
+      // Nëse dokumenti ekziston (krijuar gjatë regjistrimit), vetëm e plotësojmë —
+      // nuk prekim paketën, statusin apo datën e krijimit.
+      const data: Record<string, unknown> = {
+        uid: user.uid,
+        ownerUID: user.uid,
+        name: form.name.trim(),
+        category: form.category,
+        city: form.city,
+        address: form.address.trim(),
+        phone: form.phone.trim(),
+        description: form.description.trim(),
+        schedule: scheduleStr,
+        updatedAt: serverTimestamp(),
+      };
+      if (form.lat && form.lng) data.location = new GeoPoint(form.lat, form.lng);
+      if (user.email) data.email = user.email;
+      if (!docExists) {
+        Object.assign(data, {
+          logo: "",
+          coverImage: "",
+          subscription: "free",
+          status: "pending",
+          verified: false,
+          featured: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+      await setDoc(doc(db, "businesses", user.uid), data, { merge: true });
+
+      router.push("/dashboard/business");
+    } catch (err) {
+      console.error(err);
+      setError("Gabim gjatë ruajtjes. Provo përsëri.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canNext1 = form.name && form.category && form.city && form.address && form.phone;
+
+  if (checking) return (
+    <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div className="nb-spin" />
+      <style>{`.nb-spin{width:24px;height:24px;border:2px solid rgba(249,115,22,0.2);border-top-color:#f97316;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   return (
-    <div className="prof-root">
-      {/* Header */}
-      <header className="prof-header">
-        <div className="prof-header-inner">
-          <Link href="/" className="prof-brand">Near<span>Buy</span>.al</Link>
-          <div className="prof-header-right">
-            <Link href="/search" className="prof-nav-link">🛍 Produkte</Link>
-            <Link href="/auth/login" className="prof-login-btn">Hyr</Link>
-          </div>
-        </div>
+    <main className="setup-root">
+      <div className="setup-blob-a" />
+      <div className="setup-blob-b" />
+      <div className="setup-grid" />
 
-        <div className="prof-filters">
-          <div className="prof-search-wrap">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-            </svg>
-            <input type="text" placeholder="Kërko profesionist..."
-              value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <select value={city} onChange={e => setCity(e.target.value)} className="prof-filter-select">
-            {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={profession} onChange={e => setProfession(e.target.value)} className="prof-filter-select">
-            {PROFESSIONS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-      </header>
-
-      <main className="prof-main">
-        <div className="prof-page-title">
-          <h1>Profesionistë</h1>
-          <p>{filtered.length} profesionistë të disponueshëm</p>
-        </div>
-
-        {loading ? (
-          <div className="prof-loading">
-            <div className="prof-spinner" />
-            <p>Duke ngarkuar...</p>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="prof-empty">
-            <p>😕 Nuk u gjet asnjë profesionist për këto kritere.</p>
-            <p>Provo të ndryshosh filtrat.</p>
-          </div>
-        ) : (
-          <div className="prof-grid">
-            {filtered.map(p => (
-              <div key={p.id} className={`prof-card ${p.featured ? "featured" : ""}`}>
-                {p.featured && <div className="prof-featured-ribbon">⭐ Pro</div>}
-                <div className="prof-card-top">
-                  <div className="prof-avatar">
-                    {p.photo ? <img src={p.photo} alt={p.name} /> : <span>{p.name?.split(" ").map(n => n[0]).join("").slice(0,2).toUpperCase()}</span>}
-                  </div>
-                  <div className="prof-info">
-                    <h3 className="prof-name">{p.name}</h3>
-                    <p className="prof-job">{p.profession}</p>
-                    <p className="prof-city">📍 {p.city}</p>
-                  </div>
-                </div>
-
-                {p.description && (
-                  <p className="prof-desc">{p.description.slice(0, 100)}{p.description.length > 100 ? "..." : ""}</p>
-                )}
-
-                {p.services && p.services.length > 0 && (
-                  <div className="prof-services">
-                    {p.services.slice(0, 3).map((s, i) => (
-                      <span key={i} className="prof-service">{s}</span>
-                    ))}
-                    {p.services.length > 3 && <span className="prof-service-more">+{p.services.length - 3}</span>}
-                  </div>
-                )}
-
-                <div className="prof-card-footer">
-                  <div className="prof-footer-info">
-                    {p.pricePerHour && <span className="prof-price">{p.pricePerHour.toLocaleString()} L/orë</span>}
-                    {p.experience && <span className="prof-exp">{p.experience} eksperiencë</span>}
-                  </div>
-                  <div className="prof-actions">
-                    {p.location && (
-                      <a href={`https://www.google.com/maps/search/?api=1&query=${(p.location as any).latitude},${(p.location as any).longitude}`}
-                        target="_blank" rel="noopener noreferrer" className="prof-btn-maps">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                        Drejto
-                      </a>
-                    )}
-                    <a href={`tel:${p.phone}`} className="prof-btn-call">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.69h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 10.09a16 16 0 0 0 6 6l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17.5z"/></svg>
-                      Thirr
-                    </a>
-                  </div>
-                </div>
+      <div className="setup-card">
+        <div className="setup-header">
+          <Link href="/" className="setup-brand">
+            <div className="setup-logo">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="#f97316" strokeWidth="2"/>
+                <path d="M7 12c0-3.314 2.239-6 5-6s5 2.686 5 6-2.239 6-5 6" stroke="#f97316" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="12" cy="12" r="2.5" fill="#f97316"/>
+              </svg>
+            </div>
+            <span>NearBuy<em>.al</em></span>
+          </Link>
+          <div className="setup-steps">
+            {[1, 2, 3].map(s => (
+              <div key={s} className={`setup-step ${step === s ? "active" : step > s ? "done" : ""}`}>
+                {step > s ? "✓" : s}
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Step 1 — Info bazë */}
+        {step === 1 && (
+          <div>
+            <div className="setup-titles">
+              <h1>Informacioni i dyqanit</h1>
+              <p>Plotëso të dhënat bazë të biznesit tënd</p>
+            </div>
+            <div className="setup-fields">
+              <div className="setup-field">
+                <label>Emri i dyqanit <span className="req">*</span></label>
+                <input type="text" placeholder="p.sh. Elektronika Tirana" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div className="setup-field">
+                <label>Kategoria <span className="req">*</span></label>
+                <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+                  <option value="">Zgjidh kategorinë...</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="setup-row">
+                <div className="setup-field">
+                  <label>Qyteti <span className="req">*</span></label>
+                  <select value={form.city} onChange={e => setForm(p => ({ ...p, city: e.target.value }))}>
+                    <option value="">Zgjidh...</option>
+                    {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="setup-field">
+                  <label>Telefoni <span className="req">*</span></label>
+                  <input type="tel" placeholder="+355 6X XXX XXXX" value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
+                </div>
+              </div>
+              <div className="setup-field">
+                <label>Adresa <span className="req">*</span></label>
+                <input type="text" placeholder="Rruga, Lagjja, Nr." value={form.address} onChange={e => setForm(p => ({ ...p, address: e.target.value }))} />
+              </div>
+              <div className="setup-field">
+                <label>Përshkrim <span className="setup-optional">(opsional)</span></label>
+                <textarea rows={3} placeholder="Çfarë ofron dyqani yt..." value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
+              </div>
+              <div className="setup-field">
+                <label>Lokacioni <span className="setup-optional">(opsional)</span></label>
+                <div className="loc-tabs">
+                  <button type="button" className={`loc-tab ${locTab === "gps" ? "active" : ""}`} onClick={() => setLocTab("gps")}>📍 GPS</button>
+                  <button type="button" className={`loc-tab ${locTab === "maps" ? "active" : ""}`} onClick={() => setLocTab("maps")}>🗺 Google Maps</button>
+                </div>
+                {locTab === "gps" ? (
+                  <>
+                    <button type="button" onClick={getLocation} disabled={locating} className="setup-gps-btn">
+                      {locating ? "Duke gjetur lokacionin..." : "📍 Merr lokacionin tim"}
+                    </button>
+                    {form.lat !== 0 && <p className="loc-success">✓ Lokacioni u mor: {form.lat.toFixed(4)}, {form.lng.toFixed(4)}</p>}
+                  </>
+                ) : (
+                  <>
+                    <input type="text" placeholder="Ngjit linkun e Google Maps ose koordinatat..." value={form.mapsLink} onChange={e => handleMapsLink(e.target.value)} />
+                    {form.mapsLink && form.lat !== 0 && (
+                      <p className="loc-success">✓ Koordinatat u gjetën: {form.lat.toFixed(4)}, {form.lng.toFixed(4)}</p>
+                    )}
+                    {form.mapsLink && form.lat === 0 && (
+                      <p className="loc-warning">⚠️ Nuk u gjetën koordinata. Provo: klik i djathtë në Maps → "Copy coordinates"</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         )}
-      </main>
+
+        {/* Step 2 — Orari */}
+        {step === 2 && (
+          <div>
+            <div className="setup-titles">
+              <h1>Orari i punës</h1>
+              <p>Cakto ditët dhe orët kur dyqani yt është i hapur</p>
+            </div>
+            <div className="setup-schedule">
+              {SCHEDULE_DAYS.map(day => {
+                const s = schedule[day];
+                return (
+                  <div key={day} className={`schedule-row ${!s.open ? "closed" : ""}`}>
+                    <div className="schedule-day-wrap">
+                      <button
+                        type="button"
+                        className={`schedule-toggle ${s.open ? "on" : "off"}`}
+                        onClick={() => setSchedule(p => ({ ...p, [day]: { ...p[day], open: !p[day].open } }))}
+                      />
+                      <span className="schedule-day">{day}</span>
+                    </div>
+                    {s.open ? (
+                      <div className="schedule-times">
+                        <select value={s.from} onChange={e => setSchedule(p => ({ ...p, [day]: { ...p[day], from: e.target.value } }))}>
+                          {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                        <span>–</span>
+                        <select value={s.to} onChange={e => setSchedule(p => ({ ...p, [day]: { ...p[day], to: e.target.value } }))}>
+                          {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      <span className="schedule-closed">Mbyllur</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Step 3 — Konfirmim */}
+        {step === 3 && (
+          <div>
+            <div className="setup-titles">
+              <h1>Gati për regjistrim!</h1>
+              <p>Shqyrto të dhënat dhe regjistro dyqanin tënd</p>
+            </div>
+            <div className="setup-confirm-box">
+              <div className="setup-confirm-row"><span>🏪 Dyqani</span><strong>{form.name}</strong></div>
+              <div className="setup-confirm-row"><span>📂 Kategoria</span><strong>{form.category}</strong></div>
+              <div className="setup-confirm-row"><span>📍 Qyteti</span><strong>{form.city}</strong></div>
+              <div className="setup-confirm-row"><span>📞 Telefoni</span><strong>{form.phone}</strong></div>
+              <div className="setup-confirm-row"><span>🏠 Adresa</span><strong>{form.address}</strong></div>
+            </div>
+            <div className="setup-info-box">
+              <p>🎉 Pas regjistrimit, dyqani yt do të shfaqet në NearBuy.al pasi të aprovohet nga ekipi ynë brenda 24 orëve.</p>
+            </div>
+          </div>
+        )}
+
+        {error && <div className="setup-error">{error}</div>}
+
+        <div className="setup-nav">
+          {step > 1 && (
+            <button type="button" onClick={() => setStep(s => s - 1)} className="setup-btn-back">
+              ← Kthehu
+            </button>
+          )}
+          {step < 3 ? (
+            <button
+              type="button"
+              onClick={() => { setError(""); setStep(s => s + 1); }}
+              disabled={step === 1 && !canNext1}
+              className="setup-btn-next"
+            >
+              Vazhdo →
+            </button>
+          ) : (
+            <button type="button" onClick={handleSubmit} disabled={loading} className="setup-btn-next">
+              {loading ? <><span className="nb-spin nb-spin-w" /> Duke ruajtur...</> : "Regjistro dyqanin 🚀"}
+            </button>
+          )}
+        </div>
+
+        <p className="setup-footer">Hap {step} nga 3</p>
+      </div>
 
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        .prof-root { min-height: 100vh; background: #0a0a0a; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #f5f5f4; }
-        .prof-header { background: #111; border-bottom: 1px solid rgba(255,255,255,0.07); position: sticky; top: 0; z-index: 50; }
-        .prof-header-inner { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.5rem; }
-        .prof-brand { font-size: 1.1rem; font-weight: 800; color: #fff; text-decoration: none; letter-spacing: -0.02em; }
-        .prof-brand span { color: #f5c842; }
-        .prof-header-right { display: flex; align-items: center; gap: 12px; }
-        .prof-nav-link { font-size: 0.82rem; color: #71717a; text-decoration: none; font-weight: 500; transition: color .2s; }
-        .prof-nav-link:hover { color: #fff; }
-        .prof-login-btn { padding: 0.45rem 1rem; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: #a1a1aa; font-size: 0.8rem; text-decoration: none; transition: all .2s; }
-        .prof-login-btn:hover { border-color: rgba(255,255,255,0.2); color: #fff; }
-        .prof-filters { display: flex; gap: 8px; padding: 0.6rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; }
-        .prof-search-wrap { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.9rem; flex: 1; min-width: 200px; color: #71717a; }
-        .prof-search-wrap input { background: none; border: none; outline: none; color: #f4f4f5; font-size: 0.82rem; flex: 1; font-family: inherit; }
-        .prof-search-wrap input::placeholder { color: #3f3f46; }
-        .prof-filter-select { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #a1a1aa; font-size: 0.82rem; padding: 0.4rem 0.75rem; outline: none; cursor: pointer; font-family: inherit; }
-        .prof-filter-select option { background: #1c1c1c; }
-        .prof-main { max-width: 1000px; margin: 0 auto; padding: 2rem 1.5rem; }
-        .prof-page-title { margin-bottom: 1.5rem; }
-        .prof-page-title h1 { font-size: 1.4rem; font-weight: 700; color: #fff; letter-spacing: -0.025em; margin-bottom: 0.25rem; }
-        .prof-page-title p { font-size: 0.85rem; color: #71717a; }
-        .prof-loading { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 4rem; color: #71717a; }
-        .prof-spinner { width: 26px; height: 26px; border: 2px solid rgba(168,85,247,0.2); border-top-color: #c084fc; border-radius: 50%; animation: spin .7s linear infinite; }
+        .setup-root { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; background: #0a0a0a; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #f5f5f4; position: relative; overflow: hidden; }
+        .setup-blob-a { position: fixed; width: 500px; height: 500px; border-radius: 50%; filter: blur(100px); background: radial-gradient(circle, rgba(249,115,22,0.15), transparent 70%); top: -150px; right: -100px; pointer-events: none; z-index: 0; }
+        .setup-blob-b { position: fixed; width: 380px; height: 380px; border-radius: 50%; filter: blur(100px); background: radial-gradient(circle, rgba(249,115,22,0.08), transparent 70%); bottom: -100px; left: -80px; pointer-events: none; z-index: 0; }
+        .setup-grid { position: fixed; inset: 0; z-index: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 40px 40px; }
+        .setup-card { position: relative; z-index: 1; background: rgba(20,20,20,0.97); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 2.25rem 2rem; width: 100%; max-width: 520px; box-shadow: 0 25px 60px rgba(0,0,0,0.6); animation: up 0.45s cubic-bezier(.22,.68,0,1.15) both; }
+        @keyframes up { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
+        .setup-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.75rem; }
+        .setup-brand { display: flex; align-items: center; gap: 9px; text-decoration: none; }
+        .setup-logo { width: 34px; height: 34px; border-radius: 9px; background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.2); display: flex; align-items: center; justify-content: center; }
+        .setup-brand span { font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+        .setup-brand em { color: #f97316; font-style: normal; }
+        .setup-steps { display: flex; align-items: center; gap: 6px; }
+        .setup-step { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #71717a; transition: all 0.2s; }
+        .setup-step.active { background: rgba(249,115,22,0.15); border-color: rgba(249,115,22,0.4); color: #f97316; }
+        .setup-step.done { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.4); color: #22c55e; }
+        .setup-titles { margin-bottom: 1.5rem; }
+        .setup-titles h1 { font-size: 1.4rem; font-weight: 700; color: #fff; letter-spacing: -0.025em; margin-bottom: 0.3rem; }
+        .setup-titles p { font-size: 0.875rem; color: #71717a; }
+        .setup-fields { display: flex; flex-direction: column; gap: 1rem; }
+        .setup-field { display: flex; flex-direction: column; gap: 0.4rem; }
+        .setup-field label { font-size: 0.8rem; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.02em; }
+        .req { color: #f97316; }
+        .setup-field input, .setup-field select, .setup-field textarea { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 11px; color: #f4f4f5; font-size: 0.875rem; padding: 0.72rem 0.9rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s; font-family: inherit; resize: vertical; }
+        .setup-field input::placeholder, .setup-field textarea::placeholder { color: #3f3f46; }
+        .setup-field input:focus, .setup-field select:focus, .setup-field textarea:focus { border-color: rgba(249,115,22,0.5); box-shadow: 0 0 0 3px rgba(249,115,22,0.1); }
+        .setup-field select option { background: #1c1c1c; }
+        .setup-hint { font-size: 0.75rem; color: #52525b; margin-top: 3px; }
+        .setup-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .setup-gps-btn { display: flex; align-items: center; gap: 8px; padding: 0.72rem 1rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 11px; color: #a1a1aa; font-size: 0.875rem; cursor: pointer; font-family: inherit; transition: all 0.2s; width: 100%; }
+        .setup-gps-btn:hover:not(:disabled) { border-color: rgba(249,115,22,0.3); color: #f97316; }
+        .setup-gps-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .setup-optional { color: #52525b; font-weight: 400; text-transform: none; font-size: 0.75rem; }
+        .loc-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+        .loc-tab { flex: 1; padding: 0.55rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: transparent; color: #71717a; font-size: 0.8rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all .15s; }
+        .loc-tab:hover { background: rgba(255,255,255,0.05); color: #e4e4e7; }
+        .loc-tab.active { background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.3); color: #f97316; }
+        .loc-success { font-size: 0.78rem; color: #22c55e; margin-top: 5px; }
+        .loc-warning { font-size: 0.78rem; color: #fbbf24; margin-top: 5px; line-height: 1.4; }
+        .setup-schedule { display: flex; flex-direction: column; gap: 8px; }
+        .schedule-row { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 11px; transition: opacity 0.2s; }
+        .schedule-row.closed { opacity: 0.5; }
+        .schedule-day-wrap { display: flex; align-items: center; gap: 10px; }
+        .schedule-toggle { width: 36px; height: 20px; border-radius: 10px; border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
+        .schedule-toggle::after { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: white; top: 3px; transition: left 0.2s; }
+        .schedule-toggle.on { background: #f97316; }
+        .schedule-toggle.on::after { left: 19px; }
+        .schedule-toggle.off { background: rgba(255,255,255,0.15); }
+        .schedule-toggle.off::after { left: 3px; }
+        .schedule-day { font-size: 0.875rem; font-weight: 500; color: #e4e4e7; min-width: 90px; }
+        .schedule-times { display: flex; align-items: center; gap: 8px; }
+        .schedule-times select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e4e4e7; font-size: 0.8rem; padding: 4px 8px; outline: none; font-family: inherit; }
+        .schedule-times span { color: #52525b; font-size: 0.875rem; }
+        .schedule-closed { font-size: 0.8rem; color: #52525b; }
+        .setup-photos { display: flex; flex-direction: column; gap: 1.25rem; }
+        .photo-upload-area { display: block; border: 1.5px dashed rgba(255,255,255,0.12); border-radius: 14px; cursor: pointer; overflow: hidden; transition: border-color 0.2s; }
+        .photo-upload-area:hover { border-color: rgba(249,115,22,0.4); }
+        .photo-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 2rem; }
+        .photo-placeholder span:first-child { font-size: 2rem; }
+        .photo-placeholder span:nth-child(2) { font-size: 0.875rem; color: #a1a1aa; font-weight: 500; }
+        .photo-hint { font-size: 0.75rem; color: #52525b; }
+        .photo-preview { width: 100%; object-fit: cover; display: block; }
+        .logo-preview { height: 120px; object-fit: contain; padding: 1rem; }
+        .cover-preview { height: 160px; }
+        .cover-area .photo-placeholder { padding: 2.5rem; }
+        .setup-info-box { background: rgba(249,115,22,0.08); border: 1px solid rgba(249,115,22,0.2); border-radius: 12px; padding: 1rem; margin-top: 1.25rem; }
+        .setup-info-box p { font-size: 0.875rem; color: #fdba74; line-height: 1.5; }
+        .setup-error { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: #f87171; font-size: 0.85rem; border-radius: 10px; padding: 0.65rem 0.9rem; margin-top: 1rem; }
+        .setup-nav { display: flex; gap: 10px; margin-top: 1.75rem; }
+        .setup-btn-back { padding: 0.75rem 1.25rem; background: transparent; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: #a1a1aa; font-size: 0.875rem; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+        .setup-btn-back:hover { border-color: rgba(255,255,255,0.2); color: #e4e4e7; }
+        .setup-btn-next { flex: 1; padding: 0.75rem; background: #f97316; color: white; border: none; border-radius: 12px; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.2s, transform 0.15s; box-shadow: 0 4px 20px rgba(249,115,22,0.3); }
+        .setup-btn-next:hover:not(:disabled) { background: #ea6c0a; transform: translateY(-1px); }
+        .setup-btn-next:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .setup-footer { text-align: center; margin-top: 1rem; font-size: 0.78rem; color: #52525b; }
+        .nb-spin { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.25); border-top-color: currentColor; border-radius: 50%; animation: spin 0.65s linear infinite; }
+        .nb-spin-w { border-color: rgba(255,255,255,0.25); border-top-color: white; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .prof-empty { text-align: center; padding: 3rem; color: #71717a; }
-        .prof-empty p { margin-bottom: 6px; font-size: 0.9rem; }
-        .prof-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
-        .prof-card { background: #141414; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.875rem; position: relative; transition: border-color .2s; }
-        .prof-card:hover { border-color: rgba(255,255,255,0.15); }
-        .prof-card.featured { border-color: rgba(249,115,22,0.3); }
-        .prof-featured-ribbon { position: absolute; top: 12px; right: 12px; font-size: 0.7rem; background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.25); padding: 2px 8px; border-radius: 4px; font-weight: 700; }
-        .prof-card-top { display: flex; align-items: center; gap: 12px; }
-        .prof-avatar { width: 52px; height: 52px; border-radius: 50%; background: rgba(168,85,247,0.15); border: 2px solid rgba(168,85,247,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
-        .prof-avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .prof-avatar span { font-size: 1rem; font-weight: 700; color: #c084fc; }
-        .prof-name { font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 2px; }
-        .prof-job { font-size: 0.8rem; color: #f97316; font-weight: 600; margin-bottom: 3px; }
-        .prof-city { font-size: 0.75rem; color: #71717a; }
-        .prof-desc { font-size: 0.8rem; color: #71717a; line-height: 1.5; }
-        .prof-services { display: flex; flex-wrap: wrap; gap: 5px; }
-        .prof-service { background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.15); border-radius: 999px; padding: 2px 9px; font-size: 0.72rem; color: #c084fc; }
-        .prof-service-more { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 999px; padding: 2px 9px; font-size: 0.72rem; color: #71717a; }
-        .prof-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); }
-        .prof-footer-info { display: flex; flex-direction: column; gap: 2px; }
-        .prof-price { font-size: 0.9rem; font-weight: 700; color: #f5c842; }
-        .prof-exp { font-size: 0.72rem; color: #71717a; }
-        .prof-actions { display: flex; gap: 6px; flex-shrink: 0; }
-        .prof-btn-maps, .prof-btn-call { display: flex; align-items: center; gap: 4px; padding: 0.42rem 0.8rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; text-decoration: none; transition: all .15s; border: 1px solid; }
-        .prof-btn-maps { background: rgba(59,130,246,0.1); color: #60a5fa; border-color: rgba(59,130,246,0.25); }
-        .prof-btn-maps:hover { background: rgba(59,130,246,0.2); }
-        .prof-btn-call { background: rgba(34,197,94,0.1); color: #4ade80; border-color: rgba(34,197,94,0.25); }
-        .prof-btn-call:hover { background: rgba(34,197,94,0.2); }
-        @media(max-width:640px) { .prof-main { padding: 1.25rem 1rem; } .prof-grid { grid-template-columns: 1fr; } }
-      `}</style>
-    </div>
-  );
-}
 
-export default function ProfessionalsPage() {
-  return (
-    <Suspense fallback={
-      <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: 26, height: 26, border: "2px solid rgba(168,85,247,0.2)", borderTopColor: "#c084fc", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    }>
-      <ProfessionalsContent />
-    </Suspense>
+        .setup-confirm-box { display: flex; flex-direction: column; gap: 10px; margin-bottom: 1.25rem; }
+        .setup-confirm-row { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; font-size: 0.875rem; }
+        .setup-confirm-row span { color: #71717a; }
+        .setup-confirm-row strong { color: #e4e4e7; font-weight: 600; }
+        @media (max-width: 480px) { .setup-card { padding: 1.75rem 1.25rem; } .setup-row { grid-template-columns: 1fr; } }
+      `}</style>
+    </main>
   );
 }

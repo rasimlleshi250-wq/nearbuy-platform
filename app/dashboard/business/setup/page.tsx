@@ -30,27 +30,7 @@ export default function BusinessSetupPage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
-
-  // Nëse biznesi ekziston tashmë, ridrejto te dashboard
-  useEffect(() => {
-    if (!user) return;
-    const check = async () => {
-      const snap = await getDoc(doc(db, "businesses", user.uid));
-      if (snap.exists()) {
-        router.replace("/dashboard/business");
-      } else {
-        setChecking(false);
-      }
-    };
-    check();
-  }, [user, router]);
-
-  if (checking) return (
-    <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div className="nb-spin" />
-      <style>{`.nb-spin{width:24px;height:24px;border:2px solid rgba(249,115,22,0.2);border-top-color:#f97316;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
-  );
+  const [docExists, setDocExists] = useState(false);
   const [error, setError] = useState("");
   const [locating, setLocating] = useState(false);
   const [locTab, setLocTab] = useState<"gps" | "maps">("gps");
@@ -70,6 +50,34 @@ export default function BusinessSetupPage() {
   const [schedule, setSchedule] = useState<Record<string, DaySchedule>>(
     Object.fromEntries(SCHEDULE_DAYS.map(d => [d, { open: d !== "E Diel", from: "08:00", to: "18:00" }]))
   );
+
+  // Nëse profili i biznesit është i plotë, ridrejto te paneli.
+  // Nëse ekziston por i mungojnë të dhënat (p.sh. regjistrim me Google), plotësoje këtu.
+  useEffect(() => {
+    if (!user) return;
+    const check = async () => {
+      const snap = await getDoc(doc(db, "businesses", user.uid));
+      const d = snap.exists() ? snap.data() : null;
+      if (d && d.phone && d.city && d.address) {
+        router.replace("/dashboard/business");
+        return;
+      }
+      if (d) {
+        setDocExists(true);
+        setForm(p => ({
+          ...p,
+          name: d.name || d.displayName || "",
+          category: d.category || "",
+          city: d.city || "",
+          address: d.address || "",
+          phone: d.phone || "",
+          description: d.description || "",
+        }));
+      }
+      setChecking(false);
+    };
+    check();
+  }, [user, router]);
 
   const getLocation = () => {
     setLocating(true);
@@ -145,9 +153,12 @@ export default function BusinessSetupPage() {
         .map(([day, v]) => `${day}: ${v.from}–${v.to}`)
         .join(", ");
 
-      // Përdor setDoc me user.uid si ID (njësoj si professionals)
-      await setDoc(doc(db, "businesses", user.uid), {
+      // Përdor setDoc me user.uid si ID (njësoj si professionals).
+      // Nëse dokumenti ekziston (krijuar gjatë regjistrimit), vetëm e plotësojmë —
+      // nuk prekim paketën, statusin apo datën e krijimit.
+      const data: Record<string, unknown> = {
         uid: user.uid,
+        ownerUID: user.uid,
         name: form.name.trim(),
         category: form.category,
         city: form.city,
@@ -155,15 +166,22 @@ export default function BusinessSetupPage() {
         phone: form.phone.trim(),
         description: form.description.trim(),
         schedule: scheduleStr,
-        location: form.lat && form.lng ? new GeoPoint(form.lat, form.lng) : null,
-        logo: "",
-        coverImage: "",
-        subscription: "free",
-        status: "pending",
-        verified: false,
-        featured: false,
-        createdAt: serverTimestamp(),
-      });
+        updatedAt: serverTimestamp(),
+      };
+      if (form.lat && form.lng) data.location = new GeoPoint(form.lat, form.lng);
+      if (user.email) data.email = user.email;
+      if (!docExists) {
+        Object.assign(data, {
+          logo: "",
+          coverImage: "",
+          subscription: "free",
+          status: "pending",
+          verified: false,
+          featured: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+      await setDoc(doc(db, "businesses", user.uid), data, { merge: true });
 
       router.push("/dashboard/business");
     } catch (err) {
@@ -175,6 +193,13 @@ export default function BusinessSetupPage() {
   };
 
   const canNext1 = form.name && form.category && form.city && form.address && form.phone;
+
+  if (checking) return (
+    <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div className="nb-spin" />
+      <style>{`.nb-spin{width:24px;height:24px;border:2px solid rgba(249,115,22,0.2);border-top-color:#f97316;border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   return (
     <main className="setup-root">
