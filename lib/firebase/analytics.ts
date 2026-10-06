@@ -1,20 +1,89 @@
-import { db } from "@/lib/firebase/config";
-import { doc, setDoc, updateDoc, increment, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase/config";
+import { doc, getDoc, setDoc, increment, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { onAuthStateChanged, type User } from "firebase/auth";
 
 // ── Format date as YYYY-MM-DD ──
 const today = () => new Date().toISOString().split("T")[0];
 
-// ── Track a view for business or professional ──
-export async function trackView(type: "businesses" | "professionals", id: string) {
+// ════════════════════════════════════════════
+// FILTRI: çfarë NUK numërohet
+//  1. Pronari që hap profilin e vet
+//  2. Admini
+//  3. I njëjti vizitor më shumë se 1 herë në ditë (rifreskime, kthime mbrapa)
+// ════════════════════════════════════════════
+
+type EntityType = "businesses" | "professionals";
+
+// Pret që Firebase Auth të dijë kush është i loguar (ose që s'ka njeri)
+function currentUser(): Promise<User | null> {
+  return new Promise(resolve => {
+    const unsub = onAuthStateChanged(auth, u => { unsub(); resolve(u); });
+  });
+}
+
+// Roli i përdoruesit të loguar — lexohet 1 herë për sesion
+let rolePromise: Promise<string | null> | null = null;
+let roleUid: string | null = null;
+function getRole(uid: string): Promise<string | null> {
+  if (!rolePromise || roleUid !== uid) {
+    roleUid = uid;
+    rolePromise = getDoc(doc(db, "users", uid))
+      .then(s => (s.exists() ? (s.data().role as string) || null : null))
+      .catch(() => null);
+  }
+  return rolePromise;
+}
+
+// A është përdoruesi i loguar pronari i këtij biznesi/mjeshtri?
+const ownerCache = new Map<string, boolean>();
+async function isOwner(uid: string, type: EntityType, id: string): Promise<boolean> {
+  if (uid === id) return true; // profilet e reja kanë ID = uid
+  const key = `${type}/${id}/${uid}`;
+  if (ownerCache.has(key)) return ownerCache.get(key)!;
+  let owner = false;
   try {
+    const s = await getDoc(doc(db, type, id));
+    const d = s.exists() ? s.data() : null;
+    owner = !!d && (d.ownerUID === uid || d.uid === uid);
+  } catch { /* nëse s'lexohet, e konsiderojmë vizitor */ }
+  ownerCache.set(key, owner);
+  return owner;
+}
+
+// Shënon "u numërua sot" në shfletues; kthen false nëse ishte numëruar tashmë
+function firstTimeToday(key: string): boolean {
+  try {
+    const k = `nb_t_${key}_${today()}`;
+    if (localStorage.getItem(k)) return false;
+    localStorage.setItem(k, "1");
+  } catch { /* shfletues privat — vazhdo */ }
+  return true;
+}
+
+async function shouldCount(type: EntityType, id: string, event: string, extra = ""): Promise<boolean> {
+  if (!id) return false;
+  const user = await currentUser();
+  if (user) {
+    const role = await getRole(user.uid);
+    if (role === "admin") return false;
+    if (await isOwner(user.uid, type, id)) return false;
+  }
+  return firstTimeToday(`${event}_${type}_${id}${extra}`);
+}
+
+// ── Track a view for business or professional ──
+export async function trackView(type: EntityType, id: string) {
+  try {
+    if (!(await shouldCount(type, id, "v"))) return;
     const ref = doc(db, "analytics_" + type, id, "views", today());
     await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackView error:", e); }
 }
 
 // ── Track a contact click ──
-export async function trackContact(type: "businesses" | "professionals", id: string) {
+export async function trackContact(type: EntityType, id: string) {
   try {
+    if (!(await shouldCount(type, id, "c"))) return;
     const ref = doc(db, "analytics_" + type, id, "contacts", today());
     await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackContact error:", e); }
@@ -23,6 +92,7 @@ export async function trackContact(type: "businesses" | "professionals", id: str
 // ── Track maps click (businesses only) ──
 export async function trackMapsClick(id: string) {
   try {
+    if (!(await shouldCount("businesses", id, "m"))) return;
     const ref = doc(db, "analytics_businesses", id, "maps", today());
     await setDoc(ref, { count: increment(1), date: today() }, { merge: true });
   } catch (e) { console.error("trackMapsClick error:", e); }
@@ -31,6 +101,7 @@ export async function trackMapsClick(id: string) {
 // ── Track product click (Pro plan) ──
 export async function trackProductClick(businessId: string, productId: string, productName: string) {
   try {
+    if (!(await shouldCount("businesses", businessId, "p", `_${productId}`))) return;
     const ref = doc(db, "analytics_businesses", businessId, "products", productId);
     await setDoc(ref, { count: increment(1), name: productName, productId }, { merge: true });
   } catch (e) { console.error("trackProductClick error:", e); }
