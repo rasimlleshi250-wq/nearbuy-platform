@@ -1,18 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, updateProfile, sendEmailVerification } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
+import { notify } from "@/lib/notify";
 
 type Role = "business" | "professional" | null;
 
 export default function RegisterPage() {
   const router = useRouter();
   const [role, setRole] = useState<Role>(null);
+
+  // Butonat e faqes kryesore vijnë me ?role=business ose ?role=professional
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get("role");
+    if (r === "business" || r === "professional") setRole(r);
+  }, []);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -99,6 +106,7 @@ export default function RegisterPage() {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
       await createProfile(cred.user.uid, email, name.trim(), role);
+      notify("new_signup", cred.user.uid, role);
       await sendEmailVerification(cred.user);
       setEmailSent(true);
     } catch (err: unknown) {
@@ -118,7 +126,18 @@ export default function RegisterPage() {
     try {
       const provider = new GoogleAuthProvider();
       const cred = await signInWithPopup(auth, provider);
+
+      // Nëse llogaria ekziston tashmë, mos e mbishkruaj (roli, data e krijimit) — çoje te paneli i vet
+      const existing = await getDoc(doc(db, "users", cred.user.uid));
+      const existingRole = existing.exists() ? existing.data().role : null;
+      if (existingRole === "business" || existingRole === "professional") {
+        router.push(`/dashboard/${existingRole}`);
+        return;
+      }
+      if (existingRole === "admin") { router.push("/admin"); return; }
+
       await createProfile(cred.user.uid, cred.user.email || "", cred.user.displayName || "", role);
+      notify("new_signup", cred.user.uid, role);
       router.push(role === "business" ? "/dashboard/business/setup" : "/dashboard/professional/setup");
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
