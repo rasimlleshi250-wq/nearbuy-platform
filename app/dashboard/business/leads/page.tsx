@@ -5,11 +5,13 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from "firebase/firestore";
 import Link from "next/link";
 import { getEffectivePlan, PlanDef, PLANS } from "@/lib/plans";
 import { whatsappLink } from "@/lib/businessInfo";
 import { Lead } from "@/lib/leads";
+import { setLeadStatus } from "@/lib/myRequests";
+import { isExpired, EXPIRY_DAYS, CONTACTED_WARNING } from "@/lib/requestRules";
 
 function timeAgo(seconds?: number): string {
   if (!seconds) return "";
@@ -62,11 +64,29 @@ export default function LeadsPage() {
     load();
   }, [user]);
 
+  const [busyId, setBusyId] = useState("");
+
+  const applyResult = (id: string, r: { status: string; contactedCount?: number; closedBy?: string }) =>
+    setLeads(prev => prev.map(x => (x.id === id ? {
+      ...x,
+      status: (r.status === "closed" ? "closed" : r.status === "contacted" ? "contacted" : x.status) as Lead["status"],
+      contactedCount: r.contactedCount ?? x.contactedCount,
+      closedBy: r.closedBy ?? x.closedBy,
+    } : x)));
+
   const markContacted = async (l: Lead) => {
-    try {
-      await updateDoc(doc(db, "businesses", bizId, "leads", l.id), { status: "contacted" });
-      setLeads(prev => prev.map(x => (x.id === l.id ? { ...x, status: "contacted" } : x)));
-    } catch (e) { console.error(e); }
+    if (!user || l.status !== "new") return;
+    try { applyResult(l.id, await setLeadStatus("product", l.id, "contacted", user, bizId)); }
+    catch (e) { console.error(e); }
+  };
+
+  const markSolved = async (l: Lead) => {
+    if (!user) return;
+    if (!confirm(`Klienti ${l.name} të tha që e gjeti produktin? Kërkesa do të mbyllet edhe për dyqanet e tjera, që të mos e telefonojnë më.`)) return;
+    setBusyId(l.id);
+    try { applyResult(l.id, await setLeadStatus("product", l.id, "solved", user, bizId)); }
+    catch (e) { alert(e instanceof Error ? e.message : "Nuk u ruajt. Provo përsëri."); }
+    finally { setBusyId(""); }
   };
 
   if (loading) return <div className="ld-loading">Duke ngarkuar...<style>{CSS}</style></div>;
@@ -89,30 +109,41 @@ export default function LeadsPage() {
     );
   }
 
-  const fresh = leads.filter(l => l.status === "new").length;
+  const active = leads.filter(l => l.status !== "closed" && !isExpired("product", l.createdAt?.seconds));
+  const past = leads.filter(l => !active.includes(l)).slice(0, 30);
+  const fresh = active.filter(l => l.status === "new").length;
+
+  const pastReason = (l: Lead) => {
+    if (l.status !== "closed") return `Skadoi · më e vjetër se ${EXPIRY_DAYS.product} ditë`;
+    if (l.closedBy === bizId) return "E mbylle ti · klienti gjeti zgjidhje";
+    if (l.closedBy === "customer") return "Klienti e mbylli · e gjeti produktin";
+    return "Mbyllur · klienti e gjeti te një dyqan tjetër";
+  };
 
   return (
     <div className="ld-root">
       <div>
         <h1 className="ld-title">Kërkesat e klientëve</h1>
         <p className="ld-sub">
-          {leads.length === 0 ? "Ende s'ka kërkesa." : `${leads.length} kërkesa · ${fresh} të reja`}
+          {active.length === 0 ? "S'ka kërkesa aktive tani." : `${active.length} aktive · ${fresh} të reja`}
           {plan.id === "plus" && " · Me Premium i merr kërkesat menjëherë, jo pas 2 orësh."}
         </p>
       </div>
       {error && <div className="ld-error">{error}</div>}
 
-      {leads.length === 0 && !error && (
+      {active.length === 0 && !error && (
         <div className="ld-empty">
           Kur një klient në qytetin tënd kërkon një produkt nga kategoritë e tua që nuk e ka asnjë dyqan, kërkesa do të dalë këtu.
+          Kërkesat qëndrojnë aktive {EXPIRY_DAYS.product} ditë.
           <br />Këshillë: sa më shumë produkte të shtosh, aq më shumë klientë të gjejnë direkt.
         </div>
       )}
 
       <div className="ld-list">
-        {leads.map(l => {
+        {active.map(l => {
           const wa = whatsappLink(l.phone,
             `Përshëndetje ${l.name}, ju shkruaj nga ${bizName}. Pamë kërkesën tuaj në NearBuy për "${l.productName}".`);
+          const others = Math.max(0, (l.contactedCount || 0) - (l.status === "contacted" ? 1 : 0));
           return (
             <div key={l.id} className={`ld-card ${l.status === "new" ? "new" : ""}`}>
               <div className="ld-card-top">
@@ -121,17 +152,43 @@ export default function LeadsPage() {
               </div>
               <p className="ld-who"><b>{l.name}</b> · {l.city} · {l.phone}</p>
               {l.note && <p className="ld-note">"{l.note}"</p>}
+              {others > 0 && (
+                <p className={`ld-others ${others >= CONTACTED_WARNING ? "warn" : ""}`}>
+                  {others >= CONTACTED_WARNING ? "⚠️ " : "ℹ️ "}
+                  {others === 1 ? "1 dyqan tjetër e ka kontaktuar tashmë" : `${others} dyqane të tjera e kanë kontaktuar tashmë`}
+                  {others >= CONTACTED_WARNING && " — klienti mund ta ketë gjetur"}
+                </p>
+              )}
               <div className="ld-actions">
                 {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className="ld-wa" onClick={() => markContacted(l)}>💬 WhatsApp</a>}
                 <a href={`tel:${l.phone}`} className="ld-call" onClick={() => markContacted(l)}>📞 Telefono</a>
                 {l.status === "new"
                   ? <button className="ld-mark" onClick={() => markContacted(l)}>✓ E kontaktova</button>
-                  : <span className="ld-done">✓ Kontaktuar</span>}
+                  : <>
+                      <span className="ld-done">✓ Kontaktuar</span>
+                      <button className="ld-mark" disabled={busyId === l.id} onClick={() => markSolved(l)}>
+                        {busyId === l.id ? "Duke ruajtur..." : "Klienti gjeti zgjidhje"}
+                      </button>
+                    </>}
               </div>
             </div>
           );
         })}
       </div>
+
+      {past.length > 0 && (
+        <details className="ld-past">
+          <summary>Të mbyllura dhe të skaduara ({past.length})</summary>
+          <div className="ld-past-list">
+            {past.map(l => (
+              <div key={l.id} className="ld-past-row">
+                <span className="ld-past-name">{l.productName} · {l.name}</span>
+                <span className="ld-past-why">{pastReason(l)} · {timeAgo(l.createdAt?.seconds)}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       <style>{CSS}</style>
     </div>
   );
@@ -166,4 +223,13 @@ const CSS = `
   .ld-call{padding:0.5rem 0.9rem;background:#f97316;color:#fff;border-radius:8px;text-decoration:none;font-size:0.82rem;font-weight:700}
   .ld-mark{padding:0.5rem 0.9rem;background:transparent;border:1px solid rgba(255,255,255,0.15);color:#a1a1aa;border-radius:8px;font-size:0.8rem;cursor:pointer;font-family:inherit}
   .ld-done{font-size:0.8rem;color:#22c55e}
+  .ld-mark:disabled{opacity:0.6}
+  .ld-others{font-size:0.8rem;color:#a1a1aa}
+  .ld-others.warn{color:#fbbf24}
+  .ld-past{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:0.75rem 1rem}
+  .ld-past summary{cursor:pointer;font-size:0.85rem;color:#a1a1aa;font-weight:600}
+  .ld-past-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .ld-past-row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:0.8rem;padding:6px 0;border-top:1px solid rgba(255,255,255,0.05)}
+  .ld-past-name{color:#d4d4d8}
+  .ld-past-why{color:#71717a}
 `;

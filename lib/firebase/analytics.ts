@@ -31,7 +31,7 @@ function getRole(uid: string): Promise<string | null> {
       .then(s => (s.exists() ? (s.data().role as string) || null : null))
       .catch(() => null);
   }
-  return rolePromise;
+  return rolePromise as Promise<string | null>;
 }
 
 // A është përdoruesi i loguar pronari i këtij biznesi/mjeshtri?

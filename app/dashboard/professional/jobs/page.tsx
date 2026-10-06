@@ -5,11 +5,13 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase/config";
-import { collection, doc, getDoc, getDocs, query, orderBy, limit, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, orderBy, limit } from "firebase/firestore";
 import Link from "next/link";
 import { getEffectiveProPlan, PRO_PLANS, ProPlanDef } from "@/lib/proPlans";
 import { whatsappLink } from "@/lib/businessInfo";
 import { Job } from "@/lib/jobRequests";
+import { setLeadStatus } from "@/lib/myRequests";
+import { isExpired, EXPIRY_DAYS, CONTACTED_WARNING } from "@/lib/requestRules";
 
 function timeAgo(seconds?: number): string {
   if (!seconds) return "";
@@ -48,12 +50,29 @@ export default function JobsPage() {
     load();
   }, [user]);
 
+  const [busyId, setBusyId] = useState("");
+
+  const applyResult = (id: string, r: { status: string; contactedCount?: number; closedBy?: string }) =>
+    setJobs(prev => prev.map(x => (x.id === id ? {
+      ...x,
+      status: (r.status === "closed" ? "closed" : r.status === "contacted" ? "contacted" : x.status) as Job["status"],
+      contactedCount: r.contactedCount ?? x.contactedCount,
+      closedBy: r.closedBy ?? x.closedBy,
+    } : x)));
+
   const markContacted = async (j: Job) => {
+    if (!user || j.status !== "new") return;
+    try { applyResult(j.id, await setLeadStatus("job", j.id, "contacted", user)); }
+    catch (e) { console.error(e); }
+  };
+
+  const markSolved = async (j: Job) => {
     if (!user) return;
-    try {
-      await updateDoc(doc(db, "professionals", user.uid, "jobs", j.id), { status: "contacted" });
-      setJobs(prev => prev.map(x => (x.id === j.id ? { ...x, status: "contacted" } : x)));
-    } catch (e) { console.error(e); }
+    if (!confirm(`Klienti ${j.name} të tha që e gjeti mjeshtrin (ose e zgjidhi punën)? Kërkesa do të mbyllet edhe për mjeshtrat e tjerë, që të mos e telefonojnë më.`)) return;
+    setBusyId(j.id);
+    try { applyResult(j.id, await setLeadStatus("job", j.id, "solved", user)); }
+    catch (e) { alert(e instanceof Error ? e.message : "Nuk u ruajt. Provo përsëri."); }
+    finally { setBusyId(""); }
   };
 
   if (loading) return <p style={{ color: "#71717a", padding: "3rem", textAlign: "center" }}>Duke ngarkuar...</p>;
@@ -74,27 +93,37 @@ export default function JobsPage() {
     </div>
   );
 
-  const fresh = jobs.filter(j => j.status === "new").length;
+  const active = jobs.filter(j => j.status !== "closed" && !isExpired("job", j.createdAt?.seconds));
+  const past = jobs.filter(j => !active.includes(j)).slice(0, 30);
+  const fresh = active.filter(j => j.status === "new").length;
+
+  const pastReason = (j: Job) => {
+    if (j.status !== "closed") return `Skadoi · më e vjetër se ${EXPIRY_DAYS.job} ditë`;
+    if (j.closedBy === user?.uid) return "E mbylle ti · klienti gjeti zgjidhje";
+    if (j.closedBy === "customer") return "Klienti e mbylli · gjeti mjeshtër";
+    return "Mbyllur · klienti gjeti një mjeshtër tjetër";
+  };
 
   return (
     <div className="jb-root">
       <div>
         <h1 className="jb-title">Kërkesat për punë</h1>
         <p className="jb-sub">
-          {jobs.length === 0 ? "Ende s'ka kërkesa." : `${jobs.length} kërkesa · ${fresh} të reja`}
+          {active.length === 0 ? "S'ka kërkesa aktive tani." : `${active.length} aktive · ${fresh} të reja`}
           {plan.id === "standard" && " · Me Premium i merr menjëherë, jo pas 2 orësh."}
         </p>
       </div>
       {error && <div className="jb-err">{error}</div>}
-      {jobs.length === 0 && !error && (
+      {active.length === 0 && !error && (
         <div className="jb-empty">
-          Kur një klient në qytetet ku punon kërkon një mjeshtër si ti, kërkesa del këtu.
+          Kur një klient në qytetet ku punon kërkon një mjeshtër si ti, kërkesa del këtu. Kërkesat qëndrojnë aktive {EXPIRY_DAYS.job} ditë.
           <br />Këshillë: plotëso profilin dhe shto foto punimesh, sepse klientët i zgjedhin ata që duken më seriozë.
         </div>
       )}
       <div className="jb-list">
-        {jobs.map(j => {
+        {active.map(j => {
           const wa = whatsappLink(j.phone, `Përshëndetje ${j.name}, jam ${name}, ${j.profession.toLowerCase()}. Pashë kërkesën tuaj në NearBuy: "${j.description.slice(0, 80)}".`);
+          const others = Math.max(0, (j.contactedCount || 0) - (j.status === "contacted" ? 1 : 0));
           return (
             <div key={j.id} className={`jb-card ${j.status === "new" ? "new" : ""}`}>
               <div className="jb-top">
@@ -103,17 +132,43 @@ export default function JobsPage() {
               </div>
               <p className="jb-desc">"{j.description}"</p>
               <p className="jb-who"><b>{j.name}</b> · {j.city} · {j.phone}</p>
+              {others > 0 && (
+                <p className={`jb-others ${others >= CONTACTED_WARNING ? "warn" : ""}`}>
+                  {others >= CONTACTED_WARNING ? "⚠️ " : "ℹ️ "}
+                  {others === 1 ? "1 mjeshtër tjetër e ka kontaktuar tashmë" : `${others} mjeshtër të tjerë e kanë kontaktuar tashmë`}
+                  {others >= CONTACTED_WARNING && " — klienti mund ta ketë gjetur"}
+                </p>
+              )}
               <div className="jb-actions">
                 {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className="jb-wa" onClick={() => markContacted(j)}>💬 WhatsApp</a>}
                 <a href={`tel:${j.phone}`} className="jb-call" onClick={() => markContacted(j)}>📞 Telefono</a>
                 {j.status === "new"
                   ? <button className="jb-mark" onClick={() => markContacted(j)}>✓ E kontaktova</button>
-                  : <span className="jb-done">✓ Kontaktuar</span>}
+                  : <>
+                      <span className="jb-done">✓ Kontaktuar</span>
+                      <button className="jb-mark" disabled={busyId === j.id} onClick={() => markSolved(j)}>
+                        {busyId === j.id ? "Duke ruajtur..." : "Klienti gjeti zgjidhje"}
+                      </button>
+                    </>}
               </div>
             </div>
           );
         })}
       </div>
+
+      {past.length > 0 && (
+        <details className="jb-past">
+          <summary>Të mbyllura dhe të skaduara ({past.length})</summary>
+          <div className="jb-past-list">
+            {past.map(j => (
+              <div key={j.id} className="jb-past-row">
+                <span className="jb-past-name">{j.profession} · {j.name} · "{j.description.slice(0, 50)}{j.description.length > 50 ? "…" : ""}"</span>
+                <span className="jb-past-why">{pastReason(j)} · {timeAgo(j.createdAt?.seconds)}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       <style>{CSS}</style>
     </div>
   );
@@ -145,4 +200,13 @@ const CSS = `
   .jb-call{padding:0.5rem 0.9rem;background:#a855f7;color:#fff;border-radius:8px;text-decoration:none;font-size:0.82rem;font-weight:700}
   .jb-mark{padding:0.5rem 0.9rem;background:transparent;border:1px solid rgba(255,255,255,0.15);color:#a1a1aa;border-radius:8px;font-size:0.8rem;cursor:pointer;font-family:inherit}
   .jb-done{font-size:0.8rem;color:#22c55e}
+  .jb-mark:disabled{opacity:0.6}
+  .jb-others{font-size:0.8rem;color:#a1a1aa}
+  .jb-others.warn{color:#fbbf24}
+  .jb-past{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:0.75rem 1rem}
+  .jb-past summary{cursor:pointer;font-size:0.85rem;color:#a1a1aa;font-weight:600}
+  .jb-past-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .jb-past-row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:0.8rem;padding:6px 0;border-top:1px solid rgba(255,255,255,0.05)}
+  .jb-past-name{color:#d4d4d8}
+  .jb-past-why{color:#71717a}
 `;

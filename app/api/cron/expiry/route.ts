@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/server/firebaseAdmin";
 import { sendTelegram, esc } from "@/lib/server/telegram";
 import { sendEmail, emailLayout, ownerEmail, SITE } from "@/lib/server/email";
 import { toDate } from "@/lib/subscription";
+import { FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,5 +59,36 @@ export async function GET(req: Request) {
   if (summary.length > 0) {
     await sendTelegram(`📅 <b>Paketat që skadojnë (7 ditë)</b>\n${summary.join("\n")}\n<a href="${SITE}/admin">Hap panelin</a>`);
   }
-  return NextResponse.json({ ok: true, expiring: summary.length, emails });
+  // ── Privatësia: fshijmë emrin dhe numrin e klientëve nga kërkesat e vjetra (60 ditë) ──
+  let anonymized = 0;
+  try { anonymized = await anonymizeOldRequests(db); }
+  catch (e) { console.error("cron anonymize:", e); }
+
+  return NextResponse.json({ ok: true, expiring: summary.length, emails, anonymized });
+}
+
+// Kërkesat e reja kanë "retainUntil" (data kur duhen fshirë të dhënat personale).
+// Pas fshirjes e heqim këtë fushë, që të mos dalin më në këtë kërkim.
+async function anonymizeOldRequests(db: Firestore): Promise<number> {
+  const kinds = [
+    { col: "customer_requests", parent: "businesses", sub: "leads" },
+    { col: "job_requests", parent: "professionals", sub: "jobs" },
+  ];
+  const now = Timestamp.now();
+  let total = 0;
+  for (const k of kinds) {
+    const snap = await db.collection(k.col).where("retainUntil", "<", now).limit(100).get();
+    for (const d of snap.docs) {
+      const r = d.data();
+      const leadIds = (r.leadIds || {}) as Record<string, string>;
+      await Promise.allSettled(Object.entries(leadIds).map(([ownerId, leadId]) =>
+        db.collection(k.parent).doc(ownerId).collection(k.sub).doc(leadId).update({ name: "Klient", phone: "" })));
+      await d.ref.update({
+        name: "Klient", phone: "", phoneNorm: "", ipHash: "",
+        anonymizedAt: FieldValue.serverTimestamp(), retainUntil: FieldValue.delete(),
+      });
+      total++;
+    }
+  }
+  return total;
 }

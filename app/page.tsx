@@ -8,6 +8,7 @@ import { collection, query, where, getDocs, limit, documentId } from "firebase/f
 import { getEffectivePlan } from "@/lib/plans";
 import { getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
 import { SITE_CONTACT, siteWhatsAppLink, sitePhoneLink } from "@/lib/siteContact";
+import OpenRequestsBanner from "@/app/OpenRequestsBanner";
 
 const wa = siteWhatsAppLink();
 const tel = sitePhoneLink();
@@ -425,6 +426,7 @@ export default function HomePage() {
         </div>
       </footer>
 
+      <OpenRequestsBanner />
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
         .nb-home{min-height:100vh;background:#f8f9fa;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#111}

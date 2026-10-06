@@ -1,13 +1,13 @@
 // Kërkesat për punë: klienti përshkruan punën ("më rrjedh bojleri"), dhe kërkesa
 // u shkon profesionistëve Pro/Premium të atij profesioni që punojnë në atë qytet.
 // Premium e shohin menjëherë, Pro pas 2 orësh.
+// Kërkesa dërgohet përmes serverit (/api/requests), që kontrollon numrin dhe spam-in.
 
-import { db } from "@/lib/firebase/config";
-import { collection, doc, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from "firebase/firestore";
-import { getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
 import { notify } from "@/lib/notify";
+import { postRequests, saveMyRequest } from "@/lib/myRequests";
+import { URGENCY } from "@/lib/requestRules";
 
-export const URGENCY = ["Sot / urgjent", "Këtë javë", "S'ka nxitim"];
+export { URGENCY };
 export const STANDARD_DELAY_MS = 2 * 60 * 60 * 1000;
 
 export interface JobInput {
@@ -22,47 +22,31 @@ export interface JobInput {
 export interface Job extends JobInput {
   id: string;
   requestId: string;
-  status: "new" | "contacted";
+  status: "new" | "contacted" | "closed";
   createdAt?: { seconds: number };
   visibleAt?: { seconds: number };
+  contactedCount?: number;
+  closedBy?: string; // "customer" ose ID e mjeshtrit që e mbylli
 }
 
-export async function submitJobRequest(input: JobInput): Promise<number> {
-  const clean: JobInput = {
+// Kthen sa mjeshtër u njoftuan. Hedh Error me mesazh për klientin nëse refuzohet.
+export async function submitJobRequest(input: JobInput & { consent: boolean; website?: string }): Promise<number> {
+  const res = await postRequests({
+    action: "create",
+    kind: "job",
     profession: input.profession,
     city: input.city,
-    description: input.description.trim().slice(0, 800),
+    description: input.description,
     urgency: input.urgency,
-    name: input.name.trim().slice(0, 80),
-    phone: input.phone.trim().slice(0, 30),
-  };
-
-  const snap = await getDocs(query(collection(db, "professionals"), where("verified", "==", true)));
-  const targets = snap.docs.filter(d => {
-    const p = d.data();
-    const zones: string[] = Array.isArray(p.zones) && p.zones.length ? p.zones : [p.city];
-    return !p.blocked
-      && normalizeProfession(p.profession) === clean.profession
-      && zones.includes(clean.city)
-      && getEffectiveProPlan(p).jobRequests;
+    name: input.name,
+    phone: input.phone,
+    consent: input.consent,
+    website: input.website || "",
   });
-
-  const now = Date.now();
-  const batch = writeBatch(db);
-  const reqRef = doc(collection(db, "job_requests"));
-  batch.set(reqRef, { ...clean, status: "open", sentTo: Math.min(targets.length, 40),
-    sentToIds: targets.slice(0, 40).map(d => d.id), createdAt: serverTimestamp() });
-  targets.slice(0, 40).forEach(d => {
-    const premium = getEffectiveProPlan(d.data()).id === "premium";
-    batch.set(doc(collection(db, "professionals", d.id, "jobs")), {
-      ...clean,
-      requestId: reqRef.id,
-      status: "new",
-      createdAt: serverTimestamp(),
-      visibleAt: Timestamp.fromMillis(premium ? now : now + STANDARD_DELAY_MS),
-    });
-  });
-  await batch.commit();
-  notify("job_request", reqRef.id);
-  return Math.min(targets.length, 40);
+  const id = String(res.id || "");
+  if (id) {
+    saveMyRequest({ kind: "job", id, token: String(res.token), title: `${input.profession} në ${input.city}` });
+    notify("job_request", id);
+  }
+  return Number(res.sentTo || 0);
 }

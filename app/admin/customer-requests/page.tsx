@@ -22,6 +22,8 @@ interface Req {
   productId?: string;
   sentTo?: number;
   status: string;
+  contactedCount?: number;
+  closedBy?: string;
   createdAt?: { seconds: number };
 }
 
@@ -43,11 +45,11 @@ export default function CustomerRequestsPage() {
         ]);
         const products: Req[] = cr.docs.map(d => {
           const x = d.data();
-          return { id: d.id, kind: "product", what: x.productName, detail: x.note, category: x.category, city: x.city, name: x.name, phone: x.phone, productId: x.productId, sentTo: x.sentTo, status: x.status, createdAt: x.createdAt };
+          return { id: d.id, kind: "product", what: x.productName, detail: x.note, category: x.category, city: x.city, name: x.name, phone: x.phone, productId: x.productId, sentTo: x.sentTo, status: x.status, createdAt: x.createdAt, contactedCount: x.contactedCount, closedBy: x.closedBy };
         });
         const jobs: Req[] = jr.docs.map(d => {
           const x = d.data();
-          return { id: d.id, kind: "job", what: x.profession, detail: x.description, category: x.profession, city: x.city, name: x.name, phone: x.phone, urgency: x.urgency, sentTo: x.sentTo, status: x.status, createdAt: x.createdAt };
+          return { id: d.id, kind: "job", what: x.profession, detail: x.description, category: x.profession, city: x.city, name: x.name, phone: x.phone, urgency: x.urgency, sentTo: x.sentTo, status: x.status, createdAt: x.createdAt, contactedCount: x.contactedCount, closedBy: x.closedBy };
         });
         setItems([...products, ...jobs].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
       } catch (e) { console.error(e); }
@@ -119,7 +121,7 @@ export default function CustomerRequestsPage() {
               ? `Përshëndetje ${r.name}, ju shkruaj nga NearBuy.al për kërkesën tuaj për "${r.what}".`
               : `Përshëndetje ${r.name}, ju shkruaj nga NearBuy.al për kërkesën tuaj për ${r.what.toLowerCase()} në ${r.city}.`);
             return (
-              <div key={`${r.kind}-${r.id}`} className={`cr-row ${r.status === "handled" ? "done" : ""}`}>
+              <div key={`${r.kind}-${r.id}`} className={`cr-row ${r.status === "handled" || r.status === "closed" ? "done" : ""}`}>
                 <div className="cr-main">
                   <p className="cr-what">
                     {r.kind === "job" ? "🛠" : "📦"}{" "}
@@ -131,9 +133,11 @@ export default function CustomerRequestsPage() {
                 </div>
                 <div className="cr-side">
                   {r.sentTo ? <span className="cr-ok">→ {r.sentTo} partner{r.sentTo > 1 ? "ë" : ""}</span> : <span className="cr-bad">Pa partner</span>}
+                  {!!r.contactedCount && <span className="cr-ok">📞 {r.contactedCount} e kontaktuan</span>}
+                  {r.status === "closed" && <span className="cr-closed">🔒 {r.closedBy === "customer" ? "Mbyllur nga klienti" : "Mbyllur nga partneri"}</span>}
                   <div className="cr-actions">
                     {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className="cr-wa">💬</a>}
-                    {r.status !== "handled"
+                    {r.status !== "handled" && r.status !== "closed"
                       ? <button className="cr-mark" onClick={() => markHandled(r)}>✓ Trajtuar</button>
                       : <span className="cr-done">✓</span>}
                   </div>
@@ -146,6 +150,7 @@ export default function CustomerRequestsPage() {
 
       <style>{`
         .cr-header{margin-bottom:1.25rem}
+        .cr-closed{font-size:0.75rem;color:#71717a}
         .cr-header h1{font-size:1.4rem;font-weight:700;color:#fff;margin-bottom:0.25rem}
         .cr-header p{font-size:0.85rem;color:#71717a}
         .cr-card{background:#141414;border:1px solid rgba(249,115,22,0.25);border-radius:14px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;flex-direction:column;gap:10px}

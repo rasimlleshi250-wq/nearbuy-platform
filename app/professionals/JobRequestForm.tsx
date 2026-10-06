@@ -5,14 +5,14 @@
 import { useState } from "react";
 import { PROFESSIONS } from "@/lib/proPlans";
 import { submitJobRequest, URGENCY } from "@/lib/jobRequests";
-
-const CITIES = ["Tiranë", "Durrës", "Vlorë", "Shkodër", "Elbasan", "Korçë", "Fier", "Berat", "Lushnjë", "Kavajë", "Gjirokastër", "Sarandë", "Lezhë", "Kukës", "Pogradec", "Peshkopi"];
+import { CITIES, normalizePhone, PHONE_ERROR, EXPIRY_DAYS } from "@/lib/requestRules";
 
 export default function JobRequestForm({ defaultProfession = "", defaultCity = "", onClose }: {
   defaultProfession?: string; defaultCity?: string; onClose?: () => void;
 }) {
   const [f, setF] = useState({ profession: defaultProfession, city: defaultCity, description: "", urgency: URGENCY[1], name: "", phone: "" });
   const [consent, setConsent] = useState(false);
+  const [website, setWebsite] = useState(""); // fushë e fshehur kundër robotëve
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState<number | null>(null);
@@ -22,11 +22,12 @@ export default function JobRequestForm({ defaultProfession = "", defaultCity = "
     setError("");
     if (!f.profession || !f.city) { setError("Zgjidh llojin e mjeshtrit dhe qytetin."); return; }
     if (f.description.trim().length < 10) { setError("Përshkruaj shkurt punën (të paktën 10 shkronja)."); return; }
-    if (!f.name.trim() || f.phone.replace(/\D/g, "").length < 8) { setError("Shkruaj emrin dhe një numër telefoni të saktë."); return; }
+    if (!f.name.trim()) { setError("Shkruaj emrin."); return; }
+    if (!normalizePhone(f.phone)) { setError(PHONE_ERROR); return; }
     if (!consent) { setError("Duhet të pranosh që mjeshtrat të të kontaktojnë."); return; }
     setBusy(true);
-    try { setSent(await submitJobRequest(f)); }
-    catch (e) { console.error(e); setError("Kërkesa nuk u dërgua. Provo përsëri pas pak."); }
+    try { setSent(await submitJobRequest({ ...f, consent, website })); }
+    catch (e) { console.error(e); setError(e instanceof Error && e.message ? e.message : "Kërkesa nuk u dërgua. Provo përsëri pas pak."); }
     finally { setBusy(false); }
   };
 
@@ -38,6 +39,10 @@ export default function JobRequestForm({ defaultProfession = "", defaultCity = "
         {sent > 0
           ? `E dërguam te ${sent} ${f.profession.toLowerCase()} në ${f.city}. Do të të kontaktojnë në telefon ose WhatsApp.`
           : `Për momentin s'ka mjeshtër partnerë për këtë punë në ${f.city}. Kërkesa u ruajt dhe do të të kontaktojmë sapo ta gjejmë.`}
+      </p>
+      <p className="jr-small">
+        Kërkesa mbetet aktive {EXPIRY_DAYS.job} ditë. Nëse gjen mjeshtër më herët, herën tjetër që hap NearBuy nga ky telefon
+        mund ta mbyllësh me një klik, që të mos të telefonojnë më.
       </p>
       {onClose && <button className="jr-sec" onClick={onClose}>Mbyll</button>}
       <style>{CSS}</style>
@@ -71,8 +76,10 @@ export default function JobRequestForm({ defaultProfession = "", defaultCity = "
       </div>
       <label className="jr-consent">
         <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
-        Pranoj që mjeshtrat në NearBuy të më kontaktojnë për këtë punë.
+        Pranoj që emri dhe numri im t&apos;u jepen mjeshtrave në NearBuy që bëjnë këtë punë, që të më kontaktojnë vetëm për këtë kërkesë.
       </label>
+      <input className="jr-hp" tabIndex={-1} autoComplete="off" aria-hidden="true" placeholder="Website"
+        value={website} onChange={e => setWebsite(e.target.value)} />
       {error && <p className="jr-err">{error}</p>}
       <div className="jr-actions">
         {onClose && <button className="jr-sec" onClick={onClose}>Anulo</button>}
@@ -98,6 +105,8 @@ const CSS = `
   .jr-consent{display:flex;gap:8px;align-items:flex-start;font-size:0.8rem;color:#a1a1aa;cursor:pointer}
   .jr-consent input{accent-color:#c084fc;margin-top:2px}
   .jr-err{font-size:0.82rem;color:#f87171}
+  .jr-small{font-size:0.78rem;color:#71717a;line-height:1.5}
+  .jr-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
   .jr-actions{display:flex;gap:8px;justify-content:flex-end}
   .jr-btn{padding:0.7rem 1.4rem;background:#c084fc;color:#111;border:none;border-radius:10px;font-weight:700;cursor:pointer;font-family:inherit}
   .jr-btn:disabled{opacity:0.6}

@@ -9,6 +9,7 @@ import { trackContact } from "@/lib/firebase/analytics";
 import { PROFESSIONS, normalizeProfession, getEffectiveProPlan } from "@/lib/proPlans";
 import { openStatus, whatsappLink, DayHours } from "@/lib/businessInfo";
 import JobRequestForm from "./JobRequestForm";
+import OpenRequestsBanner from "@/app/OpenRequestsBanner";
 
 interface Professional {
   id: string;
@@ -169,6 +170,7 @@ function ProfessionalsContent() {
         )}
       </div>
 
+      <OpenRequestsBanner />
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
         .pro-root{min-height:100vh;background:#0a0a0a;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#f5f5f4}

@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { submitCustomerRequest, CITIES } from "@/lib/leads";
+import { normalizePhone, PHONE_ERROR, EXPIRY_DAYS } from "@/lib/requestRules";
 
 interface Props {
   productId: string;
@@ -14,6 +15,7 @@ interface Props {
 export default function CustomerRequestForm({ productId, productName, category }: Props) {
   const [form, setForm] = useState({ name: "", phone: "", city: "", note: "" });
   const [consent, setConsent] = useState(false);
+  const [website, setWebsite] = useState(""); // fushë e fshehur kundër robotëve
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState<number | null>(null);
@@ -23,15 +25,15 @@ export default function CustomerRequestForm({ productId, productName, category }
   const submit = async () => {
     setError("");
     if (!form.name.trim() || !form.city) { setError("Shkruaj emrin dhe zgjidh qytetin."); return; }
-    if (form.phone.replace(/\D/g, "").length < 8) { setError("Shkruaj një numër telefoni të saktë."); return; }
+    if (!normalizePhone(form.phone)) { setError(PHONE_ERROR); return; }
     if (!consent) { setError("Duhet të pranosh që dyqanet të të kontaktojnë."); return; }
     setBusy(true);
     try {
-      const n = await submitCustomerRequest({ productId, productName, category, ...form });
+      const n = await submitCustomerRequest({ productId, productName, category, ...form, consent, website });
       setSent(n);
     } catch (e) {
       console.error(e);
-      setError("Kërkesa nuk u dërgua. Provo përsëri pas pak.");
+      setError(e instanceof Error && e.message ? e.message : "Kërkesa nuk u dërgua. Provo përsëri pas pak.");
     } finally { setBusy(false); }
   };
 
@@ -44,6 +46,10 @@ export default function CustomerRequestForm({ productId, productName, category }
           {sent > 0
             ? `E dërguam te ${sent} ${sent === 1 ? "dyqan" : "dyqane"} në ${form.city}. Do të të kontaktojnë në telefon ose WhatsApp.`
             : `Për momentin s'ka dyqane partnere në ${form.city} për këtë kategori. Kërkesa jote u ruajt dhe do të të kontaktojmë sapo ta gjejmë.`}
+        </p>
+        <p className="crf-small">
+          Kërkesa mbetet aktive {EXPIRY_DAYS.product} ditë. Nëse e gjen produktin më herët, herën tjetër që hap NearBuy nga ky telefon
+          mund ta mbyllësh me një klik, që të mos të telefonojnë më.
         </p>
         <style>{CSS}</style>
       </div>
@@ -65,8 +71,10 @@ export default function CustomerRequestForm({ productId, productName, category }
       </div>
       <label className="crf-consent">
         <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
-        Pranoj që dyqanet në NearBuy të më kontaktojnë për këtë kërkesë.
+        Pranoj që emri dhe numri im t&apos;u jepen dyqaneve në NearBuy që mund ta kenë këtë produkt, që të më kontaktojnë vetëm për këtë kërkesë.
       </label>
+      <input className="crf-hp" tabIndex={-1} autoComplete="off" aria-hidden="true" placeholder="Website"
+        value={website} onChange={e => setWebsite(e.target.value)} />
       {error && <p className="crf-error">{error}</p>}
       <button onClick={submit} disabled={busy} className="crf-btn">{busy ? "Duke dërguar..." : "Dërgo kërkesën"}</button>
       <style>{CSS}</style>
@@ -87,6 +95,8 @@ const CSS = `
   .crf-consent{display:flex;gap:8px;align-items:flex-start;font-size:0.8rem;color:#a1a1aa;cursor:pointer;line-height:1.4}
   .crf-consent input{accent-color:#f5c842;margin-top:2px}
   .crf-error{font-size:0.82rem;color:#f87171}
+  .crf-small{font-size:0.78rem;color:#71717a;line-height:1.5}
+  .crf-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
   .crf-btn{padding:0.75rem;background:#f5c842;color:#111;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:inherit}
   .crf-btn:disabled{opacity:0.6}
   @media(max-width:520px){.crf-grid{grid-template-columns:1fr}}

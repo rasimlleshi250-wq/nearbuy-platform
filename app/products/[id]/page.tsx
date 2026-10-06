@@ -9,6 +9,7 @@ import { trackProductClick } from "@/lib/firebase/analytics";
 import { whatsappLink } from "@/lib/businessInfo";
 import { getEffectivePlan } from "@/lib/plans";
 import CustomerRequestForm from "./CustomerRequestForm";
+import OpenRequestsBanner from "@/app/OpenRequestsBanner";
 
 interface Product {
   id: string;
@@ -298,6 +299,7 @@ export default function ProductDetailPage() {
 
       </div>
 
+      <OpenRequestsBanner />
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
         .det-root{min-height:100vh;background:#0a0a0a;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#f5f5f4}
