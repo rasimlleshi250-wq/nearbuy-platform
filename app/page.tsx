@@ -7,6 +7,10 @@ import { db } from "@/lib/firebase/config";
 import { collection, query, where, getDocs, limit, documentId } from "firebase/firestore";
 import { getEffectivePlan } from "@/lib/plans";
 import { getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
+import { SITE_CONTACT, siteWhatsAppLink, sitePhoneLink } from "@/lib/siteContact";
+
+const wa = siteWhatsAppLink();
+const tel = sitePhoneLink();
 
 interface Business {
   id: string;
@@ -375,9 +379,48 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="nb-footer">
         <div className="nb-container">
-          <div className="nb-footer-row">
-            <p className="nb-footer-logo">Near<span>Buy</span>.al</p>
-            <p className="nb-footer-copy">© 2026 NearBuy.al — Të gjitha të drejtat e rezervuara</p>
+          <div className="nb-footer-grid">
+            <div className="nb-footer-col nb-footer-about">
+              <p className="nb-footer-logo">Near<span>Buy</span>.al</p>
+              <p className="nb-footer-tag">Materiale ndërtimi dhe mjeshtër të besuar pranë teje.</p>
+            </div>
+
+            <div className="nb-footer-col">
+              <p className="nb-footer-head">Për klientët</p>
+              <Link href="/products">Kërko produkte</Link>
+              <Link href="/professionals">Gjej mjeshtër</Link>
+              <Link href="/professionals?request=1">Kërko ofertë nga mjeshtrit</Link>
+            </div>
+
+            <div className="nb-footer-col">
+              <p className="nb-footer-head">Për bizneset</p>
+              <Link href="/auth/register?role=business">Regjistro dyqanin</Link>
+              <Link href="/auth/register?role=professional">Regjistrohu si mjeshtër</Link>
+              <Link href="/auth/login">Hyr në llogari</Link>
+            </div>
+
+            {(wa || tel || SITE_CONTACT.email || SITE_CONTACT.facebook || SITE_CONTACT.instagram) && (
+              <div className="nb-footer-col">
+                <p className="nb-footer-head">Kontakt</p>
+                {wa && <a href={wa} target="_blank" rel="noopener noreferrer">💬 WhatsApp</a>}
+                {tel && <a href={tel}>📞 {SITE_CONTACT.phone}</a>}
+                {SITE_CONTACT.email && <a href={`mailto:${SITE_CONTACT.email}`}>✉️ {SITE_CONTACT.email}</a>}
+                {(SITE_CONTACT.facebook || SITE_CONTACT.instagram) && (
+                  <div className="nb-footer-social">
+                    {SITE_CONTACT.facebook && <a href={SITE_CONTACT.facebook} target="_blank" rel="noopener noreferrer">Facebook</a>}
+                    {SITE_CONTACT.instagram && <a href={SITE_CONTACT.instagram} target="_blank" rel="noopener noreferrer">Instagram</a>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="nb-footer-bottom">
+            <p className="nb-footer-copy">© {new Date().getFullYear()} NearBuy.al — Të gjitha të drejtat e rezervuara</p>
+            <div className="nb-footer-legal">
+              <Link href="/terms">Kushtet e Shërbimit</Link>
+              <Link href="/privacy">Privatësia</Link>
+            </div>
           </div>
         </div>
       </footer>
@@ -494,11 +537,23 @@ export default function HomePage() {
         .nb-prod-offer{position:absolute;top:8px;left:8px;z-index:1;background:#f5c842;color:#111;font-size:0.65rem;font-weight:800;padding:2px 8px;border-radius:6px}
         .nb-prod-cat{font-size:0.72rem;color:#f97316;font-weight:500;margin-bottom:2px}
         .nb-prod-brand{font-size:0.7rem;color:#9ca3af}
-        .nb-footer{padding:2rem 0;border-top:1px solid #e5e7eb;background:#fff}
-        .nb-footer-row{display:flex;align-items:center;justify-content:space-between}
-        .nb-footer-logo{font-size:1rem;font-weight:800;color:#111}
+        .nb-footer{padding:2.5rem 0 1.5rem;border-top:1px solid #e5e7eb;background:#fff}
+        .nb-footer-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:2rem}
+        .nb-footer-col{display:flex;flex-direction:column;gap:0.55rem;min-width:0}
+        .nb-footer-col a{font-size:0.85rem;color:#4b5563;text-decoration:none;overflow-wrap:anywhere}
+        .nb-footer-col a:hover{color:#f97316}
+        .nb-footer-head{font-size:0.75rem;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.2rem}
+        .nb-footer-logo{font-size:1.1rem;font-weight:800;color:#111}
         .nb-footer-logo span{color:#f5c842}
+        .nb-footer-tag{font-size:0.85rem;color:#6b7280;line-height:1.5;max-width:260px}
+        .nb-footer-social{display:flex;gap:0.9rem}
+        .nb-footer-bottom{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:2rem;padding-top:1.25rem;border-top:1px solid #f0f0f0}
         .nb-footer-copy{font-size:0.78rem;color:#9ca3af}
+        .nb-footer-legal{display:flex;gap:1.1rem}
+        .nb-footer-legal a{font-size:0.78rem;color:#9ca3af;text-decoration:none}
+        .nb-footer-legal a:hover{color:#f97316}
+        @media(max-width:900px){.nb-footer-grid{grid-template-columns:1fr 1fr}.nb-footer-about{grid-column:1 / -1}}
+        @media(max-width:480px){.nb-footer-grid{grid-template-columns:1fr;gap:1.5rem}}
         @media(max-width:900px){.nb-biz-grid,.nb-pro-grid,.nb-how-grid,.nb-loading-row{grid-template-columns:repeat(2,1fr)}.nb-how-arrow{display:none}.nb-prod-grid{grid-template-columns:repeat(2,1fr)}}
         @media(max-width:600px){.nb-nav{padding:0 1rem}.nb-nav-link{display:none}.nb-hero{padding:5rem 1rem 3rem}.nb-cat-grid{grid-template-columns:repeat(2,1fr)}.nb-biz-grid,.nb-pro-grid,.nb-how-grid,.nb-loading-row,.nb-prod-grid{grid-template-columns:repeat(2,1fr)}.nb-cta-title{font-size:1.5rem}}
       `}</style>
