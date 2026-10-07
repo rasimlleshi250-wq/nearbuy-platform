@@ -169,7 +169,6 @@ export default function BusinessSetupPage() {
         updatedAt: serverTimestamp(),
       };
       if (form.lat && form.lng) data.location = new GeoPoint(form.lat, form.lng);
-      if (user.email) data.email = user.email;
       if (!docExists) {
         Object.assign(data, {
           logo: "",

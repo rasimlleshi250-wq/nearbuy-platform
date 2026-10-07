@@ -64,7 +64,6 @@ export default function RegisterPage() {
     if (selectedRole === "professional") {
       await setDoc(doc(db, "professionals", uid), {
         uid,
-        email,
         displayName,
         status: "pending",
         createdAt: serverTimestamp(),
@@ -75,7 +74,6 @@ export default function RegisterPage() {
       await setDoc(doc(db, "businesses", uid), {
         uid,
         ownerUID: uid,
-        email,
         displayName,
         name: bizName.trim() || displayName,
         city: bizCity,

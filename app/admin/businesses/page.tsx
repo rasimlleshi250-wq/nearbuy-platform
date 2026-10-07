@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { collection, getDocs, query, orderBy, doc, updateDoc, deleteDoc, where, getCountFromServer } from "firebase/firestore";
+import { collection, getDocs, getDoc, query, orderBy, doc, updateDoc, deleteDoc, where, getCountFromServer } from "firebase/firestore";
 import { PLANS as PLAN_DEFS, PLAN_ORDER, normalizePlanId, getEffectivePlan } from "@/lib/plans";
 import { getSubscriptionState } from "@/lib/subscription";
 import { recordPayment } from "@/lib/payments";
@@ -58,6 +58,19 @@ export default function AdminBusinessesPage() {
   const [planFilter, setPlanFilter] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedBiz, setSelectedBiz] = useState<BizExtra | null>(null);
+  // Email-i ruhet vetëm te users/{uid} (jo te profili publik), ndaj lexohet kur hapet detaji
+  const [selectedEmail, setSelectedEmail] = useState("");
+  useEffect(() => {
+    setSelectedEmail("");
+    if (!selectedBiz) return;
+    const b = selectedBiz as any;
+    if (typeof b.email === "string" && b.email) { setSelectedEmail(b.email); return; }
+    const uid = String(b.ownerUID || b.uid || b.id || "");
+    if (!uid) return;
+    getDoc(doc(db, "users", uid))
+      .then(s => setSelectedEmail(String(s.data()?.email || "")))
+      .catch(() => {});
+  }, [selectedBiz]);
   const [editPlan, setEditPlan] = useState<BizExtra | null>(null);
   const [editPlanForm, setEditPlanForm] = useState({ plan: "", startDate: "", endDate: "", paymentMethod: "" });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -408,7 +421,7 @@ export default function AdminBusinessesPage() {
               <div className="adm-detail-row"><span>Adresa</span><strong>{(selectedBiz as any).address || "—"}</strong></div>
               <div className="adm-detail-row"><span>Telefoni</span><strong>{selectedBiz.phone || "—"}</strong></div>
               <div className="adm-detail-row"><span>Kategoria</span><strong>{(selectedBiz as any).category || "—"}</strong></div>
-              <div className="adm-detail-row"><span>Email</span><strong>{(selectedBiz as any).email || "—"}</strong></div>
+              <div className="adm-detail-row"><span>Email</span><strong>{selectedEmail || "—"}</strong></div>
               <div className="adm-detail-row"><span>Paketa</span><strong>{planName(selectedBiz.subscription)}</strong></div>
               <div className="adm-detail-row"><span>Filloi</span><strong>{selectedBiz.subscriptionStart || "—"}</strong></div>
               <div className="adm-detail-row"><span>Mbaron</span><strong>{selectedBiz.subscriptionEnd || "—"}</strong></div>
