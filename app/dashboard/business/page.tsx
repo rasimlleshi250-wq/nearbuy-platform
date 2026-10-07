@@ -5,7 +5,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { db } from "@/lib/firebase/config";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
-import { getTotalStats, getLast30DaysStats, getTopProducts, getMonthComparison } from "@/lib/firebase/analytics";
+import { getTotalStats, getLast30DaysStats, getMonthComparison } from "@/lib/firebase/analytics";
+import MarketInsights from "./MarketInsights";
 import Link from "next/link";
 import { getSubscriptionState, formatDate } from "@/lib/subscription";
 import { notify } from "@/lib/notify";
@@ -28,7 +29,6 @@ interface Business {
 }
 
 interface DayData { date: string; count: number; }
-interface TopProduct { productId: string; name: string; count: number; }
 
 
 function MiniChart({ data, color }: { data: DayData[]; color: string }) {
@@ -63,7 +63,7 @@ export default function BusinessOverviewPage() {
   const [viewsData, setViewsData] = useState<DayData[]>([]);
   const [contactsData, setContactsData] = useState<DayData[]>([]);
   const [mapsData, setMapsData] = useState<DayData[]>([]);
-  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [myProductIds, setMyProductIds] = useState<string[]>([]);
   const [comparison, setComparison] = useState<{ thisMonth: { views: number; contacts: number }; lastMonth: { views: number; contacts: number } } | null>(null);
 
   useEffect(() => {
@@ -92,6 +92,7 @@ export default function BusinessOverviewPage() {
         const pq = query(collection(db, "business_products"), where("businessId", "==", bid));
         const psnap = await getDocs(pq);
         setProductCount(psnap.size);
+        setMyProductIds(psnap.docs.map(d => String(d.data().productId || "")).filter(Boolean));
 
         // Analytics bazë (gjithmonë)
         const total = await getTotalStats("businesses", bid);
@@ -103,7 +104,6 @@ export default function BusinessOverviewPage() {
         const st = getSubscriptionState(bizData || null);
         const eff = getEffectivePlan(bizData || null);
         const isAdvancedOrPro = hasStats(eff, "charts");
-        const isPro = hasStats(eff, "full");
 
         // Përmbledhja mujore — për çdo plan aktiv
         if (st.active && hasStats(eff, "monthly")) {
@@ -118,10 +118,6 @@ export default function BusinessOverviewPage() {
           setTotalMaps(stats30.totalMaps);
         }
 
-        if (isPro) {
-          const top = await getTopProducts(bid);
-          setTopProducts(top);
-        }
 
       } catch (e) {
         console.error(e);
@@ -344,21 +340,14 @@ export default function BusinessOverviewPage() {
         </>
       )}
 
-      {/* Pro — Top produktet */}
-      {isPro && topProducts.length > 0 && (
-        <>
-          <div className="ov-section-title">Top produktet më të klikuara</div>
-          <div className="ov-top-products">
-            {topProducts.map((p, i) => (
-              <div key={p.productId} className="ov-top-prod">
-                <span className="ov-top-rank">#{i + 1}</span>
-                <span className="ov-top-name">{p.name}</span>
-                <span className="ov-top-count">{p.count} klikime</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      {/* Çfarë kërkojnë klientët — mbushet vetë me kalimin e kohës */}
+      <MarketInsights
+        businessId={business.id}
+        city={business.city}
+        categories={Array.isArray((business as any).categories) && (business as any).categories.length ? (business as any).categories : business.category ? [business.category] : []}
+        myProductIds={myProductIds}
+        level={hasStats(effPlan, "charts") ? "market" : hasStats(effPlan, "monthly") ? "own" : "none"}
+      />
 
       {/* Quick actions */}
       <div className="ov-section-title">Veprime të shpejta</div>

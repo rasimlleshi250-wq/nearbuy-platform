@@ -17,6 +17,7 @@ import {
   CITIES, URGENCY, LIMITS, RETENTION_DAYS, EXPIRY_DAYS,
   normalizePhone, formatPhone, PHONE_ERROR, type RequestKind,
 } from "@/lib/requestRules";
+import { monthId, unmetKey } from "@/lib/periods";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -171,6 +172,15 @@ async function create(req: Request, kind: RequestKind, b: Record<string, unknown
     retainUntil: Timestamp.fromMillis(now + RETENTION_DAYS * DAY_MS),
   });
   await batch.commit();
+
+  // Statistikë tregu pa të dhëna personale: "këtë muaj N klientë në këtë qytet kërkuan këtë produkt
+  // dhe asnjë dyqan nuk e kishte në listë" (formulari del vetëm kur produkti s'e ka asnjë dyqan)
+  if (kind === "product") {
+    const month = monthId();
+    await db.collection("market_unmet").doc(unmetKey(city, month)).collection("products").doc(String(fields.productId))
+      .set({ count: FieldValue.increment(1), name: fields.productName, category: fields.category, city, month }, { merge: true })
+      .catch(e => console.error("market_unmet:", e));
+  }
 
   return NextResponse.json({ ok: true, id: reqRef.id, token, sentTo: targets.length });
 }

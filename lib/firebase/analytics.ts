@@ -1,6 +1,7 @@
 import { db, auth } from "@/lib/firebase/config";
 import { doc, getDoc, setDoc, increment, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 import { onAuthStateChanged, type User } from "firebase/auth";
+import { weekId } from "@/lib/periods";
 
 // ── Format date as YYYY-MM-DD ──
 const today = () => new Date().toISOString().split("T")[0];
@@ -98,13 +99,42 @@ export async function trackMapsClick(id: string) {
   } catch (e) { console.error("trackMapsClick error:", e); }
 }
 
-// ── Track product click (Pro plan) ──
+// ── Klient kontakton një dyqan nga faqja e produktit ──
+// "products" = gjithsej (që nga fillimi); "pcontacts" = sipas javës, për statistikat e reja
 export async function trackProductClick(businessId: string, productId: string, productName: string) {
   try {
     if (!(await shouldCount("businesses", businessId, "p", `_${productId}`))) return;
+    const name = productName.slice(0, 200);
     const ref = doc(db, "analytics_businesses", businessId, "products", productId);
-    await setDoc(ref, { count: increment(1), name: productName, productId }, { merge: true });
+    await setDoc(ref, { count: increment(1), name, productId }, { merge: true });
+    const week = weekId();
+    await setDoc(doc(db, "analytics_businesses", businessId, "pcontacts", `${week}_${productId}`),
+      { count: increment(1), week, productId, name }, { merge: true });
   } catch (e) { console.error("trackProductClick error:", e); }
+}
+
+// ── Dikush hap faqen e një produkti ──
+// 1) Kërkesa e tregut: sa u pa produkti këtë javë në gjithë NearBuy
+// 2) Për çdo dyqan që e ka produktin: sa herë u pa produkti i tij këtë javë
+// Nuk numërohen dyqanet, mjeshtrat dhe admini (ata nuk janë klientë), as rifreskimet e së njëjtës ditë.
+export async function trackProductPageView(productId: string, productName: string, category: string, businessIds: string[]) {
+  try {
+    if (!productId) return;
+    const user = await currentUser();
+    if (user) {
+      const role = await getRole(user.uid);
+      if (role === "admin" || role === "business" || role === "professional") return;
+    }
+    if (!firstTimeToday(`pv_${productId}`)) return;
+    const week = weekId();
+    const name = productName.slice(0, 200);
+    await setDoc(doc(db, "market_weeks", week, "products", productId),
+      { count: increment(1), name, category: category.slice(0, 100) }, { merge: true });
+    await Promise.all([...new Set(businessIds)].slice(0, 40).map(bid =>
+      setDoc(doc(db, "analytics_businesses", bid, "pviews", `${week}_${productId}`),
+        { count: increment(1), week, productId, name }, { merge: true }).catch(() => {})
+    ));
+  } catch (e) { console.error("trackProductPageView error:", e); }
 }
 
 // ── Get total stats (Basic) ──

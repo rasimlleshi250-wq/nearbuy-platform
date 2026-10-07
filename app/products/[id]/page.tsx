@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/firebase/config";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { trackProductClick } from "@/lib/firebase/analytics";
+import { trackProductClick, trackProductPageView } from "@/lib/firebase/analytics";
 import { whatsappLink } from "@/lib/businessInfo";
 import { getEffectivePlan } from "@/lib/plans";
 import CustomerRequestForm from "./CustomerRequestForm";
@@ -113,6 +113,8 @@ export default function ProductDetailPage() {
           return (a.price || 0) - (b.price || 0);
         });
         setBizProducts(results);
+        // Statistikat e tregut: kërkesa për produktin + shikimet për çdo dyqan që e ka
+        if (prod) trackProductPageView(productId, prod.name, prod.category || "", results.map(r => r.businessId));
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };

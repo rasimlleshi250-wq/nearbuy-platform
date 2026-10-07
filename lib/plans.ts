@@ -32,12 +32,12 @@ export const PLANS: Record<PlanId, PlanDef> = {
   baze: {
     id: "baze", name: "Bazë", priceEur: 10, maxProducts: 300, excel: true, offers: true,
     stats: "monthly", rank: 0, featured: false, leads: false, color: "#3b82f6",
-    perks: ["Deri në 300 produkte", "Ngarkim me Excel", "Oferta me zbritje", "Përmbledhja mujore e klientëve"],
+    perks: ["Deri në 300 produkte", "Ngarkim me Excel", "Oferta me zbritje", "Shikime dhe kontakte për çdo produkt"],
   },
   plus: {
     id: "plus", name: "Plus", priceEur: 15, maxProducts: null, excel: true, offers: true,
     stats: "charts", rank: 1, featured: false, leads: true, color: "#a855f7",
-    perks: ["Produkte pa limit", "Renditje më lart se Falas dhe Bazë", "Kërkesat e klientëve për produkte", "Grafikët e 30 ditëve"],
+    perks: ["Produkte pa limit", "Renditje më lart se Falas dhe Bazë", "Kërkesat e klientëve për produkte", "Çfarë kërkojnë klientët + ku të bësh ofertë", "Grafikët e 30 ditëve"],
   },
   premium: {
     id: "premium", name: "Premium", priceEur: 20, maxProducts: null, excel: true, offers: true,
