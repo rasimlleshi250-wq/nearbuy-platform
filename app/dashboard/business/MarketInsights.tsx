@@ -2,10 +2,10 @@
 
 // "Çfarë kërkojnë klientët" — statistikat që i tregojnë dyqanit çfarë të mbajë dhe ku të bëjë ofertë.
 //
-//  1. Më të kërkuarat këtë javë   (gjithë NearBuy, në kategoritë e dyqanit)      → Plus / Premium
-//  2. Ku të bësh ofertë            (produktet e tua: shikime, kontakte, çmimi)   → Plus / Premium
-//  3. Kërkuan, askush s'e kishte   (kërkesat e klientëve pa dyqan, në qytet)     → Plus / Premium
-//  4. Produktet e tua              (shikime → kontakte, këtë javë / 4 javë)      → Bazë e lart
+//  1. Më të kërkuarat këtë javë   (gjithë NearBuy, në kategoritë e dyqanit)      → Premium
+//  2. Ku të bësh ofertë            (produktet e tua: shikime, kontakte, çmimi)   → Premium
+//  3. Kërkuan, askush s'e kishte   (kërkesat e klientëve pa dyqan, në qytet)     → Premium
+//  4. Produktet e tua              (shikime → kontakte, këtë javë / 4 javë)      → Premium
 //
 // Mbushen vetë me kalimin e kohës. Kur s'ka ende të dhëna, shfaqet "Po mbledhim të dhëna".
 
@@ -22,7 +22,7 @@ interface Props {
   city: string;
   categories: string[];
   myProductIds: string[];
-  level: Level; // none = Falas, own = Bazë, market = Plus/Premium
+  level: Level; // market = Premium; none = paketat e tjera (shohin ftesën). "own" mbetet nëse duam ta hapim karta 4 për Bazë/Plus
 }
 
 interface OwnRow { productId: string; name: string; viewsW: number; views4: number; contactsW: number; contacts4: number; }
@@ -147,7 +147,7 @@ export default function MarketInsights({ businessId, city, categories, myProduct
           <span>🔒</span>
           <div>
             <p className="mi-locked-title">Shiko çfarë kërkojnë klientët dhe ku të bësh ofertë</p>
-            <p className="mi-locked-sub">Produktet më të kërkuara këtë javë, produktet që klientët kërkuan por askush s'i kishte, dhe krahasimi i çmimit tënd. Me paketën Plus ose Premium.</p>
+            <p className="mi-locked-sub">Produktet më të kërkuara këtë javë, ku të bësh ofertë, çfarë kërkuan klientët pa e gjetur askund, dhe shikimet e kontaktet për çdo produkt tëndin. Vetëm me paketën Premium.</p>
           </div>
         </div>
         <style>{css}</style>
@@ -273,7 +273,7 @@ export default function MarketInsights({ businessId, city, categories, myProduct
         <div className="mi-locked">
           <span>🔒</span>
           <div>
-            <p className="mi-locked-title">Më shumë me Plus: çfarë kërkon tregu</p>
+            <p className="mi-locked-title">Më shumë me Premium: çfarë kërkon tregu</p>
             <p className="mi-locked-sub">Produktet më të kërkuara këtë javë, kërkesat që askush s&apos;i mbuloi, dhe ku çmimi yt është më i lartë se të tjerët.</p>
           </div>
         </div>

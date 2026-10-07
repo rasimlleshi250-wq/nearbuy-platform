@@ -8,6 +8,7 @@ import { PRO_PLANS, PRO_PLAN_ORDER, normalizeProPlanId, getEffectiveProPlan, nor
 import { getSubscriptionState, toDate, formatDate } from "@/lib/subscription";
 import { recordPayment } from "@/lib/payments";
 import { notify } from "@/lib/notify";
+import { trialFields, TRIAL_DAYS } from "@/lib/trial";
 
 type Pro = Professional & Record<string, any>;
 const DURATIONS = [1, 3, 6, 12];
@@ -77,6 +78,19 @@ export default function AdminProfessionalsPage() {
       notify("plan_activated", p.id, "professional");
       setProfessionals(prev => prev.map(x => x.id === p.id ? ({ ...x, ...update, requestedPlan: undefined } as unknown as Pro) : x));
     } catch (e) { console.error(e); alert("Gabim gjatë aktivizimit."); }
+    finally { setBusy(null); }
+  };
+
+  // 🎁 Oferta e nisjes: 30 ditë Premium falas (një herë për mjeshtër)
+  const startTrial = async (p: Pro) => {
+    if (!confirm(`T'i japësh "${p.name || "këtij mjeshtri"}" ${TRIAL_DAYS} ditë Premium falas?`)) return;
+    setBusy(p.id);
+    try {
+      const f = trialFields();
+      await updateDoc(doc(db, "professionals", p.id), f);
+      notify("plan_activated", p.id, "professional");
+      setProfessionals(prev => prev.map(x => x.id === p.id ? ({ ...x, ...f, requestedPlan: undefined } as unknown as Pro) : x));
+    } catch (e) { console.error(e); alert("Gabim gjatë aktivizimit të provës."); }
     finally { setBusy(null); }
   };
 
@@ -194,10 +208,15 @@ export default function AdminProfessionalsPage() {
                         ) : def.id !== "free" ? (
                           <>{sel}<button className="adm-renew" disabled={busy === p.id} onClick={() => activatePlan(p, def.id)}>↻ Rinovo</button></>
                         ) : (
+                          <>
+                          {!p.trialUsed && (
+                            <button className="adm-renew" disabled={busy === p.id} onClick={() => startTrial(p)}>🎁 {TRIAL_DAYS} ditë Premium falas</button>
+                          )}
                           <select className="adm-mini-sel" value="" onChange={e => e.target.value && activatePlan(p, e.target.value)}>
                             <option value="">Aktivizo paketë...</option>
                             {PRO_PLAN_ORDER.filter(x => x !== "free").map(x => <option key={x} value={x}>{PRO_PLANS[x].name} (€{PRO_PLANS[x].priceEur})</option>)}
                           </select>
+                          </>
                         )}
                       </div>
                     );

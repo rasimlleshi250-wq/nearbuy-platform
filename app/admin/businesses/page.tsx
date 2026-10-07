@@ -6,6 +6,7 @@ import { PLANS as PLAN_DEFS, PLAN_ORDER, normalizePlanId, getEffectivePlan } fro
 import { getSubscriptionState } from "@/lib/subscription";
 import { recordPayment } from "@/lib/payments";
 import { notify } from "@/lib/notify";
+import { trialFields, TRIAL_DAYS } from "@/lib/trial";
 import { db } from "@/lib/firebase/config";
 import Link from "next/link";
 
@@ -48,6 +49,7 @@ interface BizExtra {
   registeredAt?: string;
   category?: string;
   categories?: string[];
+  trialUsed?: boolean;
 }
 
 export default function AdminBusinessesPage() {
@@ -140,6 +142,19 @@ export default function AdminBusinessesPage() {
         subscriptionStart: samePlanActive && b.subscriptionStart ? b.subscriptionStart : start, paymentMethod: method } : b
     ));
     setActionLoading(null);
+  };
+
+  // 🎁 Oferta e nisjes: 30 ditë Premium falas (një herë për dyqan)
+  const startTrial = async (b: BizExtra) => {
+    if (!confirm(`T'i japësh "${b.name}" ${TRIAL_DAYS} ditë Premium falas?`)) return;
+    setActionLoading(b.id + "_trial");
+    try {
+      const f = trialFields();
+      await updateDoc(doc(db, "businesses", b.id), f);
+      notify("plan_activated", b.id, "business");
+      setBusinesses(prev => prev.map(x => x.id === b.id ? { ...x, ...f, requestedPlan: undefined } : x));
+    } catch (e) { console.error(e); alert("Gabim gjatë aktivizimit të provës."); }
+    finally { setActionLoading(null); }
   };
 
   const rejectPlan = async (id: string) => {
@@ -390,6 +405,10 @@ export default function AdminBusinessesPage() {
                     </td>
                     <td>
                       <div className="adm-actions-cell">
+                        {!b.trialUsed && !getSubscriptionState(b as unknown as Record<string, unknown>).active && (
+                          <button onClick={() => startTrial(b)} disabled={actionLoading === b.id + "_trial"}
+                            className="adm-btn-action" title={`${TRIAL_DAYS} ditë Premium falas`}>🎁</button>
+                        )}
                         <button onClick={() => setSelectedBiz(b)} className="adm-btn-action" title="Shiko detajet">👁</button>
                         <Link href={`/admin/businesses/${b.id}/stats`} className="adm-btn-action" title="Statistika">📊</Link>
                         <button onClick={() => toggleBlocked(b.id, !!b.blocked)} disabled={actionLoading === b.id + "_block"}

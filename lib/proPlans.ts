@@ -35,7 +35,7 @@ export const PRO_PLANS: Record<ProPlanId, ProPlanDef> = {
   premium: {
     id: "premium", name: "Premium", priceEur: 15, maxPhotos: 20, maxZones: 3, rank: 2,
     jobRequests: true, featured: true, fullStats: true, color: "#f97316",
-    perks: ["Kërkesat për punë 2 orë para Pro-s", "I pari në renditje", "Badge \"Featured\" + homepage", "Gjithçka te Pro"],
+    perks: ["Kërkesat për punë 2 orë para Pro-s", "I pari në renditje", "Shenja \"⭐ I rekomanduar\" + homepage", "Gjithçka te Pro"],
   },
 };
 

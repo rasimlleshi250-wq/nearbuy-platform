@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase/config";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 import { getTotalStats, getLast30DaysStats, getMonthComparison } from "@/lib/firebase/analytics";
 import MarketInsights from "./MarketInsights";
+import { isTrial } from "@/lib/trial";
 import Link from "next/link";
 import { getSubscriptionState, formatDate } from "@/lib/subscription";
 import { notify } from "@/lib/notify";
@@ -188,6 +189,19 @@ export default function BusinessOverviewPage() {
         </span>
       </div>
 
+      {/* Prova falas Premium */}
+      {isSubscribed && isTrial(business as unknown as Record<string, unknown>) && subState.daysLeft !== null && (
+        <div className="ov-banner ov-banner-blue">
+          <span>🎁</span>
+          <div>
+            <p className="ov-banner-title" style={{ color: "#93c5fd" }}>Po provon Premium falas · edhe {subState.daysLeft} ditë</p>
+            <p className="ov-banner-sub" style={{ color: "#a1a1aa" }}>
+              Ke gjithçka: renditjen e parë, kërkesat e klientëve dhe statistikat e tregut. Pas provës kalon te Falas, përveç nëse zgjedh një paketë më poshtë.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Përmbledhja: çfarë solli NearBuy këtë muaj */}
       {isSubscribed && hasStats(effPlan, "monthly") && comparison && (
         <div className="ov-summary">
@@ -346,7 +360,7 @@ export default function BusinessOverviewPage() {
         city={business.city}
         categories={Array.isArray((business as any).categories) && (business as any).categories.length ? (business as any).categories : business.category ? [business.category] : []}
         myProductIds={myProductIds}
-        level={hasStats(effPlan, "charts") ? "market" : hasStats(effPlan, "monthly") ? "own" : "none"}
+        level={hasStats(effPlan, "full") ? "market" : "none"}
       />
 
       {/* Quick actions */}
@@ -391,7 +405,7 @@ export default function BusinessOverviewPage() {
             <div key={id} className={`ov-plan ${isCurrentPlan ? "ov-plan-active" : ""}`}
               style={{ borderColor: isCurrentPlan ? `${p.color}60` : isPending ? `${p.color}40` : undefined }}>
               {id === "plus" && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Më e zgjedhura</div>}
-              {isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>Paketa jote</div>}
+              {isCurrentPlan && <div className="ov-plan-tag" style={{ background: p.color }}>{isTrial(business as unknown as Record<string, unknown>) ? "Provë falas" : "Paketa jote"}</div>}
               {isPending && !isCurrentPlan && <div className="ov-plan-tag" style={{ background: "#52525b" }}>Në pritje</div>}
               <div className="ov-plan-header">
                 <p className="ov-plan-name" style={{ color: p.color }}>{p.name}</p>
