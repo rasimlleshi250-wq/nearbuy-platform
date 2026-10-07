@@ -12,9 +12,6 @@ export const metadata: Metadata = {
   authors: [{ name: "NearBuy.al" }],
   creator: "NearBuy.al",
   metadataBase: new URL("https://nearbuy.al"),
-  alternates: {
-    canonical: "/",
-  },
   openGraph: {
     title: "NearBuy.al — Gjej produktin afër teje",
     description: "Kërko produkte dhe profesionistë afër teje në gjithë Shqipërinë. Çmimi më i mirë, shërbim lokal.",
@@ -27,7 +24,6 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "NearBuy.al — Gjej produktin afër teje",
     description: "Kërko produkte dhe profesionistë afër teje në gjithë Shqipërinë.",
-    creator: "@nearbuy_al",
   },
   robots: {
     index: true,
