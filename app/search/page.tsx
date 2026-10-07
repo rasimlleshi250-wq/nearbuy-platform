@@ -206,7 +206,7 @@ function SearchContent() {
                 : `Përshëndetje ${b.name}, ju gjeta në NearBuy.al dhe kam një pyetje.`);
               return (
               <div key={b.id} className={`sr-card ${b.featured ? "sr-card-featured" : ""}`}>
-                {b.featured && <div className="sr-feat">⭐ Featured</div>}
+                {b.featured && <div className="sr-feat">⭐ I rekomanduar</div>}
                 <Link href={`/business/${b.id}`} className="sr-card-link">
                   {(b as any).matchedProduct && (
                     <div className="sr-product-match">

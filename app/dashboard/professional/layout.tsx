@@ -13,7 +13,7 @@ import { getEffectiveProPlan, normalizeProPlanId, normalizeProfession, PRO_PLANS
 import { getSubscriptionState } from "@/lib/subscription";
 
 const NAV = [
-  { href: "/dashboard/professional", label: "Overview", icon: "⊞", exact: true },
+  { href: "/dashboard/professional", label: "Përmbledhje", icon: "⊞", exact: true },
   { href: "/dashboard/professional/jobs", label: "Kërkesat për punë", icon: "🛠" },
   { href: "/dashboard/professional/profile", label: "Profili im", icon: "👤" },
 ];

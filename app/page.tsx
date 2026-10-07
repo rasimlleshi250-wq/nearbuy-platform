@@ -293,7 +293,7 @@ export default function HomePage() {
             <div className="nb-pro-grid">
               {professionals.map(p => (
                 <Link key={p.id} href={PROFESSIONAL_URL(p.id)} className="nb-pro-card">
-                  {p.featured && <div className="nb-featured-badge nb-featured-pro">⭐ Featured</div>}
+                  {p.featured && <div className="nb-featured-badge nb-featured-pro">⭐ I rekomanduar</div>}
                   <div className="nb-pro-photo">{p.photo ? <img src={p.photo} alt={p.name} /> : <span>👤</span>}</div>
                   <div>
                     <p className="nb-pro-name">{p.name}</p>
@@ -326,7 +326,7 @@ export default function HomePage() {
             <div className="nb-biz-grid">
               {businesses.map(b => (
                 <Link key={b.id} href={BUSINESS_URL(b.id)} className="nb-biz-card">
-                  {b.featured && <div className="nb-featured-badge">⭐ Featured</div>}
+                  {b.featured && <div className="nb-featured-badge">⭐ I rekomanduar</div>}
                   <div className="nb-biz-logo">{b.logo ? <img src={b.logo} alt={b.name} /> : <span>🏪</span>}</div>
                   <div>
                     <p className="nb-biz-name">{b.name}</p>

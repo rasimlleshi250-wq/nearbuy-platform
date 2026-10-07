@@ -171,7 +171,7 @@ export default function BusinessPublicPage() {
               <div className="biz-pub-title-row">
                 <h1 className="biz-pub-name">{business.name}</h1>
                 {business.verified && <span className="biz-pub-verified">✓ Verifikuar</span>}
-                {business.featured && <span className="biz-pub-featured">⭐ Featured</span>}
+                {business.featured && <span className="biz-pub-featured">⭐ I rekomanduar</span>}
               </div>
               <div className="biz-pub-cats">
                 {(business.categories && business.categories.length > 0 ? business.categories : [business.category]).map(cat => (

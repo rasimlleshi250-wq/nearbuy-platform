@@ -6,11 +6,11 @@
 
 export const SITE_CONTACT = {
   // Numri i biznesit, p.sh. "+355 69 123 4567"
-  phone: "",
+  phone: "+355 68 259 5950",
   // Numri i WhatsApp-it (zakonisht i njëjti me telefonin), p.sh. "+355 69 123 4567"
-  whatsapp: "",
+  whatsapp: "+355 68 259 5950",
   // Email-i nga host.al, p.sh. "info@nearbuy.al"
-  email: "",
+  email: "info@nearbuy.al",
   // Linqet e plota, p.sh. "https://facebook.com/nearbuy.al"
   facebook: "",
   instagram: "",

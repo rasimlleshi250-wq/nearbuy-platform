@@ -103,7 +103,7 @@ export default function ProfessionalPublicPage() {
               <div className="pub-hero-top">
                 <h1>{pro.name}</h1>
                 <span className="pub-verified">✓ Verifikuar</span>
-                {pro.featured && <span className="pub-featured-badge">⭐ Featured</span>}
+                {pro.featured && <span className="pub-featured-badge">⭐ I rekomanduar</span>}
               </div>
               <p className="pub-profession">{pro.profession}</p>
               {status && <p className={`pub-open ${status.open ? "on" : ""}`}>● {status.label}</p>}

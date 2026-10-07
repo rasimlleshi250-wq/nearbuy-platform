@@ -10,7 +10,7 @@ import { auth, db } from "@/lib/firebase/config";
 import { collection, query, where, getCountFromServer } from "firebase/firestore";
 
 const NAV = [
-  { href: "/admin", label: "Overview", icon: "⊞", exact: true },
+  { href: "/admin", label: "Përmbledhje", icon: "⊞", exact: true },
   { href: "/admin/products", label: "Produktet", icon: "🛍" },
   { href: "/admin/product-requests", label: "Kërkesat për produkte", icon: "📥" },
   { href: "/admin/customer-requests", label: "Kërkesat e klientëve", icon: "📨" },

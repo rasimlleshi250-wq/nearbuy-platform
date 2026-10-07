@@ -68,7 +68,7 @@ export default function ProfessionalDashboardPage() {
     <div className="pro-page">
       <div className="pro-page-header">
         <div>
-          <h1>Overview</h1>
+          <h1>Përmbledhje</h1>
           <p>Mirë se erdhe, {pro.name?.split(" ")[0] || "Profesionist"}! 👋</p>
         </div>
         <div className="pro-header-btns">

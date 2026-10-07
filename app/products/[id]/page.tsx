@@ -234,7 +234,7 @@ export default function ProductDetailPage() {
                 const displayPrice = hasActiveOffer ? bp.offerPrice || bp.price : bp.price;
                 return (
                   <div key={bp.id} className={`det-biz-card ${!bp.inStock ? "out-of-stock" : ""} ${bp.business.featured ? "featured" : ""}`}>
-                    {bp.business.featured && <span className="det-featured-tag">⭐ Featured</span>}
+                    {bp.business.featured && <span className="det-featured-tag">⭐ I rekomanduar</span>}
                     {hasActiveOffer && (
                       <span className="det-offer-tag">
                         🏷 -{Math.round((1 - (bp.offerPrice || bp.price) / bp.price) * 100)}%

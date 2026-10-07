@@ -14,7 +14,7 @@ import { Business } from "@/types";
 import { getSubscriptionState, formatDate } from "@/lib/subscription";
 
 const NAV = [
-  { href: "/dashboard/business", label: "Overview", icon: "⊞", exact: true },
+  { href: "/dashboard/business", label: "Përmbledhje", icon: "⊞", exact: true },
   { href: "/dashboard/business/products", label: "Produktet", icon: "🛍" },
   { href: "/dashboard/business/leads", label: "Kërkesat e klientëve", icon: "📨" },
   { href: "/dashboard/business/profile", label: "Profili", icon: "🏪" },

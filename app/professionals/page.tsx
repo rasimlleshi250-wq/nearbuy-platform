@@ -137,7 +137,7 @@ function ProfessionalsContent() {
               const zones = p.zones && p.zones.length ? p.zones : [p.city];
               return (
                 <div key={p.id} className={`pro-card ${p.featured ? "pro-card-featured" : ""}`}>
-                  {p.featured && <div className="pro-feat-badge">⭐ Featured</div>}
+                  {p.featured && <div className="pro-feat-badge">⭐ I rekomanduar</div>}
                   <Link href={`/professionals/${p.id}`} className="pro-card-link">
                     <div className="pro-card-top">
                       <div className="pro-photo">{p.photo ? <img src={p.photo} alt={p.name} /> : <span>👤</span>}</div>
