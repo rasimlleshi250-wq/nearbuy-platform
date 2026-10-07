@@ -10,6 +10,7 @@ import { PROFESSIONS, normalizeProfession, getEffectiveProPlan } from "@/lib/pro
 import { openStatus, whatsappLink, DayHours } from "@/lib/businessInfo";
 import JobRequestForm from "./JobRequestForm";
 import OpenRequestsBanner from "@/app/OpenRequestsBanner";
+import BrandLogo from "@/app/BrandLogo";
 
 interface Professional {
   id: string;
@@ -77,7 +78,7 @@ function ProfessionalsContent() {
   return (
     <div className="pro-root">
       <nav className="pro-nav">
-        <Link href="/" className="pro-logo">Near<span>Buy</span>.al</Link>
+        <Link href="/" className="pro-logo" aria-label="NearBuy.al"><BrandLogo size={18} /></Link>
         <div className="pro-nav-right">
           <Link href="/search" className="pro-nav-link">Kërko</Link>
           <Link href="/auth/login" className="pro-nav-login">Hyr</Link>

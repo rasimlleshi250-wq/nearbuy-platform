@@ -68,8 +68,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Link href="/" className="adm-brand">
             <div className="adm-brand-icon">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="#f97316" strokeWidth="2"/>
-                <path d="M7 12c0-3.314 2.239-6 5-6s5 2.686 5 6-2.239 6-5 6" stroke="#f97316" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="12" cy="12" r="10.5" stroke="#f4f4f5" strokeWidth="1.75"/>
+                <circle cx="12" cy="12" r="6.25" stroke="#f97316" strokeWidth="1.75"/>
                 <circle cx="12" cy="12" r="2.5" fill="#f97316"/>
               </svg>
             </div>

@@ -9,6 +9,7 @@ import { trackContact } from "@/lib/firebase/analytics";
 import { searchWords, pickMainTerm, matchesAllWords } from "@/lib/searchKeywords";
 import { getEffectivePlan } from "@/lib/plans";
 import { openStatus, whatsappLink, DayHours } from "@/lib/businessInfo";
+import BrandLogo from "@/app/BrandLogo";
 
 interface BusinessWithProduct extends Business {
   matchedProduct?: {
@@ -139,7 +140,7 @@ function SearchContent() {
   return (
     <div className="sr-root">
       <nav className="sr-nav">
-        <Link href="/" className="sr-logo">Near<span>Buy</span>.al</Link>
+        <Link href="/" style={{ textDecoration: "none" }} aria-label="NearBuy.al"><BrandLogo size={18} /></Link>
         <div className="sr-nav-right">
           <Link href="/professionals" className="sr-nav-link">Profesionistë</Link>
           <Link href="/auth/login" className="sr-nav-login">Hyr</Link>

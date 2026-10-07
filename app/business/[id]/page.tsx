@@ -8,6 +8,7 @@ import { doc, getDoc, collection, query, where, getDocs } from "firebase/firesto
 import { trackView, trackContact, trackMapsClick } from "@/lib/firebase/analytics";
 import { DAYS, DayHours, isValidHours, openStatus, whatsappLink } from "@/lib/businessInfo";
 import { getEffectivePlan } from "@/lib/plans";
+import BrandLogo from "@/app/BrandLogo";
 
 interface Business {
   id: string;
@@ -146,7 +147,7 @@ export default function BusinessPublicPage() {
     <div className="biz-pub-root">
       {/* Nav */}
       <nav className="biz-pub-nav">
-        <Link href="/" className="biz-pub-logo">Near<span>Buy</span>.al</Link>
+        <Link href="/" className="biz-pub-logo" aria-label="NearBuy.al"><BrandLogo size={18} /></Link>
         <Link href="/search" className="biz-pub-back">← Kthehu</Link>
       </nav>
 

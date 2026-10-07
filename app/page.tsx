@@ -9,6 +9,7 @@ import { getEffectivePlan } from "@/lib/plans";
 import { getEffectiveProPlan, normalizeProfession } from "@/lib/proPlans";
 import { SITE_CONTACT, siteWhatsAppLink, sitePhoneLink } from "@/lib/siteContact";
 import OpenRequestsBanner from "@/app/OpenRequestsBanner";
+import BrandLogo from "@/app/BrandLogo";
 
 const wa = siteWhatsAppLink();
 const tel = sitePhoneLink();
@@ -166,7 +167,7 @@ export default function HomePage() {
     <main className="nb-home">
       {/* Navbar */}
       <nav className="nb-nav">
-        <Link href="/" className="nb-logo">Near<span>Buy</span>.al</Link>
+        <Link href="/" className="nb-logo" aria-label="NearBuy.al"><BrandLogo size={19} /></Link>
         <div className="nb-nav-actions">
           <Link href="/professionals" className="nb-nav-link">Profesionistë</Link>
           <Link href="/auth/login" className="nb-nav-login">Hyr</Link>
@@ -382,7 +383,7 @@ export default function HomePage() {
         <div className="nb-container">
           <div className="nb-footer-grid">
             <div className="nb-footer-col nb-footer-about">
-              <p className="nb-footer-logo">Near<span>Buy</span>.al</p>
+              <p className="nb-footer-logo"><BrandLogo size={18} dark={false} /></p>
               <p className="nb-footer-tag">Materiale ndërtimi dhe mjeshtër të besuar pranë teje.</p>
             </div>
 

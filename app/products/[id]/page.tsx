@@ -10,6 +10,7 @@ import { whatsappLink } from "@/lib/businessInfo";
 import { getEffectivePlan } from "@/lib/plans";
 import CustomerRequestForm from "./CustomerRequestForm";
 import OpenRequestsBanner from "@/app/OpenRequestsBanner";
+import BrandLogo from "@/app/BrandLogo";
 
 interface Product {
   id: string;
@@ -150,7 +151,7 @@ export default function ProductDetailPage() {
 
         {/* Nav */}
         <nav className="det-nav">
-          <Link href="/" className="det-brand">Near<span>Buy</span>.al</Link>
+          <Link href="/" className="det-brand" aria-label="NearBuy.al"><BrandLogo size={18} /></Link>
           <div className="det-breadcrumb">
             <Link href="/products">Produktet</Link>
             <span>›</span>

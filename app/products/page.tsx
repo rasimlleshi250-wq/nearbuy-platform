@@ -22,6 +22,7 @@ import {
   QueryConstraint,
 } from "firebase/firestore";
 import { getSubcategories } from "@/lib/firebase/firestore";
+import BrandLogo from "@/app/BrandLogo";
 
 interface Product {
   id: string;
@@ -260,8 +261,8 @@ function ProductsContent() {
     <div className="pd-root">
       {/* Nav */}
       <nav className="pd-nav">
-        <Link href="/" className="pd-logo">
-          Near<span>Buy</span>.al
+        <Link href="/" className="pd-logo" aria-label="NearBuy.al">
+          <BrandLogo size={18} />
         </Link>
         <div className="pd-nav-right">
           <Link href="/search" className="pd-nav-link">
